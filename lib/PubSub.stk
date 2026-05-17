@@ -1,0 +1,77 @@
+# lib/PubSub.stk — `use GCP::PubSub`
+#
+# Topic / subscription names can be bare (e.g. "my-topic") or fully
+# qualified ("projects/PROJECT/topics/my-topic"). Bare names are expanded
+# against $opts{project} or $ENV{GOOGLE_CLOUD_PROJECT}.
+
+package GCP::PubSub
+
+use GCP
+
+# Publish a single message. Attributes is an optional hashref.
+fn GCP::PubSub::publish ($topic, $data, %opts) {
+    my @argv = GCP::_conn_argv(\%opts)
+    push @argv, "pubsub", "publish", GCP::_shq($topic), "--data", GCP::_shq($data)
+    if (defined $opts{attrs} && ref($opts{attrs}) eq "HASH") {
+        for my $k (sort keys %{ $opts{attrs} }) {
+            my $v = $opts{attrs}{$k}
+            push @argv, "--attr", GCP::_shq("$k=$v")
+        }
+    }
+    push @argv, "--ordering-key", GCP::_shq($opts{ordering_key}) if defined $opts{ordering_key}
+    GCP::_run_json(\@argv)
+}
+
+# Pull. Pass `ack => 1` to auto-acknowledge received messages.
+fn GCP::PubSub::pull ($subscription, %opts) {
+    my @argv = GCP::_conn_argv(\%opts)
+    push @argv, "pubsub", "pull", GCP::_shq($subscription)
+    push @argv, "--max",      GCP::_shq($opts{max})      if defined $opts{max}
+    push @argv, "--deadline", GCP::_shq($opts{deadline}) if defined $opts{deadline}
+    push @argv, "--ack" if $opts{ack}
+    GCP::_run_ndjson(\@argv)
+}
+
+# Acknowledge one or more ack IDs.
+fn GCP::PubSub::ack ($subscription, $ids, %opts) {
+    my $list = ref($ids) eq "ARRAY" ? join(",", @$ids) : $ids
+    my @argv = GCP::_conn_argv(\%opts)
+    push @argv, "pubsub", "ack", GCP::_shq($subscription), "--ids", GCP::_shq($list)
+    GCP::_run_json(\@argv)
+}
+
+fn GCP::PubSub::topics (%opts) {
+    my @argv = GCP::_conn_argv(\%opts)
+    push @argv, "pubsub", "topics"
+    map { $_->{name} } GCP::_run_ndjson(\@argv)
+}
+
+fn GCP::PubSub::subs (%opts) {
+    my @argv = GCP::_conn_argv(\%opts)
+    push @argv, "pubsub", "subs"
+    GCP::_run_ndjson(\@argv)
+}
+
+# Convenience: pull → callback → ack each message. Returns count handled.
+fn GCP::PubSub::pump ($subscription, %opts) {
+    die "GCP::PubSub::pump: callback => sub { … } is required" unless defined $opts{callback}
+    my $cb = $opts{callback}
+    my $iters = $opts{iterations} // 1
+    my $n = 0
+    for (1 .. $iters) {
+        my @msgs = GCP::PubSub::pull($subscription, %opts)
+        last unless @msgs
+        my @acks
+        for my $m (@msgs) {
+            $cb->($m)
+            push @acks, $m->{ack_id} if defined $m->{ack_id}
+            $n++
+        }
+        if (@acks) {
+            GCP::PubSub::ack($subscription, \@acks, %opts)
+        }
+    }
+    $n
+}
+
+1

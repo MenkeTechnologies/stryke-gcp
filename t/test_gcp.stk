@@ -1,0 +1,106 @@
+# t/test_gcp.stk — connectivity tests against a live GCP project.
+#
+# Most tests just exercise plumbing — they hit GCP minimally so the suite
+# stays cheap. Skips cleanly when:
+#   * the helper isn't built
+#   * Application Default Credentials aren't reachable
+#
+# Set $STRYKE_GCP_TEST_BUCKET / $STRYKE_GCP_TEST_TOPIC / $STRYKE_GCP_TEST_SUB
+# to opt into the per-service round-trips that need writable resources.
+
+require "./lib/GCP.stk"
+require "./lib/Storage.stk"
+require "./lib/PubSub.stk"
+
+my $have_helper = eval { GCP::helper_path(); 1 }
+unless ($have_helper) {
+    p "1..0 # SKIP helper not built — run `cargo build --release` first"
+    exit 0
+}
+
+my $have_creds = GCP::ping()
+unless ($have_creds) {
+    p "1..0 # SKIP no GCP credentials reachable (gcloud auth application-default login)"
+    exit 0
+}
+
+my $bucket = $ENV{STRYKE_GCP_TEST_BUCKET}
+my $topic  = $ENV{STRYKE_GCP_TEST_TOPIC}
+my $sub    = $ENV{STRYKE_GCP_TEST_SUB}
+
+my $plan = 2
+$plan += 4 if defined $bucket
+$plan += 2 if defined $topic && defined $sub
+p "1..$plan"
+my $i = 0
+
+# 1. auth → returns the {project, ok:true} shape.
+my $id
+eval { $id = GCP::auth() }
+$i++
+p $@ ? "not ok $i - auth: $@" :
+       ($id->{ok} ? "ok $i - auth (project=$id->{project})" : "not ok $i - auth.ok=false")
+
+# 2. buckets list (read-only, low blast radius)
+my @bs
+eval { @bs = GCP::Storage::buckets() }
+$i++
+p $@ ? "not ok $i - buckets: $@" : "ok $i - buckets (saw " . len(@bs) . ")"
+
+# ---- GCS round-trip ----
+if (defined $bucket) {
+    my $key = "stryke-gcp-test/$$/" . time() . ".txt"
+    my $uri = "gs://$bucket/$key"
+    my $body = "hello-from-stryke-gcp-$$"
+
+    my $r
+    eval { $r = GCP::Storage::put($uri, data => $body) }
+    $i++
+    p $@ ? "not ok $i - gcs put: $@" :
+           (defined $r->{key} ? "ok $i - gcs put" : "not ok $i - gcs put bad shape")
+
+    my $got
+    eval { $got = GCP::Storage::get($uri) }
+    $i++
+    p $@ ? "not ok $i - gcs get: $@" :
+           ($got eq $body ? "ok $i - gcs get round-trip" :
+            "not ok $i - gcs get returned " . len($got) . " bytes, want " . len($body))
+
+    my $head
+    eval { $head = GCP::Storage::head($uri) }
+    $i++
+    p $@ ? "not ok $i - gcs head: $@" :
+           ($head->{size} == len($body) ? "ok $i - gcs head" :
+            "not ok $i - gcs head size=$head->{size}")
+
+    eval { GCP::Storage::rm($uri) }
+    $i++
+    p $@ ? "not ok $i - gcs rm: $@" : "ok $i - gcs rm"
+}
+
+# ---- Pub/Sub round-trip (needs $TOPIC and $SUB both set and SUB pointing at TOPIC) ----
+if (defined $topic && defined $sub) {
+    my $body = "msg-from-stryke-gcp-$$-" . time()
+
+    my $sent
+    eval { $sent = GCP::PubSub::publish($topic, $body) }
+    $i++
+    p $@ ? "not ok $i - pubsub publish: $@" :
+           (defined $sent->{message_id} ? "ok $i - pubsub publish" :
+            "not ok $i - pubsub publish wrong shape")
+
+    sleep 2
+    my @msgs
+    eval { @msgs = GCP::PubSub::pull($sub, max => 10, ack => 1) }
+    $i++
+    if ($@) {
+        p "not ok $i - pubsub pull: $@"
+    } else {
+        my $found = 0
+        for my $m (@msgs) {
+            $found = 1 if $m->{data} eq $body
+        }
+        p ($found ? "ok $i - pubsub pull (got our message)"
+                  : "not ok $i - pubsub pull missing our message (saw " . len(@msgs) . ")")
+    }
+}

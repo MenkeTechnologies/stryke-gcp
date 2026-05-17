@@ -1,0 +1,91 @@
+# lib/Storage.stk — `use GCP::Storage`
+#
+# GCS via the JSON API. Object URIs use the standard `gs://bucket/key`
+# form.
+
+package GCP::Storage
+
+use GCP
+
+# Returns array of entries:
+#   { type=>"object", key, size, content_type, md5, etag, updated, storage_class, generation }
+#   { type=>"prefix", key }
+fn GCP::Storage::ls ($uri, %opts) {
+    my @argv = GCP::_conn_argv(\%opts)
+    push @argv, "gcs", "ls", GCP::_shq($uri)
+    push @argv, "--delimiter", GCP::_shq($opts{delimiter}) if defined $opts{delimiter}
+    push @argv, "--page-size", GCP::_shq($opts{page_size}) if defined $opts{page_size}
+    push @argv, "--limit",     GCP::_shq($opts{limit})     if defined $opts{limit}
+    GCP::_run_ndjson(\@argv)
+}
+
+# Returns the object's body as a scalar string. Pass `output => "PATH"`
+# to write to a file and get the path back.
+fn GCP::Storage::get ($uri, %opts) {
+    my @argv = GCP::_conn_argv(\%opts)
+    push @argv, "gcs", "get", GCP::_shq($uri)
+    if (defined $opts{output}) {
+        push @argv, "--output", GCP::_shq($opts{output})
+        my $rc = system join(" ", @argv)
+        die "GCP::Storage::get: helper exited ($rc)" if $rc != 0
+        return $opts{output}
+    }
+    push @argv, "--output", "-"
+    GCP::_run_raw(\@argv)
+}
+
+# Upload a scalar or local file. Pass `data => $bytes` OR `input => "/path"`.
+fn GCP::Storage::put ($uri, %opts) {
+    my @argv = GCP::_conn_argv(\%opts)
+    push @argv, "gcs", "put", GCP::_shq($uri)
+    push @argv, "--content-type",  GCP::_shq($opts{content_type})  if defined $opts{content_type}
+    push @argv, "--cache-control", GCP::_shq($opts{cache_control}) if defined $opts{cache_control}
+
+    if (defined $opts{data}) {
+        push @argv, "--input", "-"
+        my $tmp = "/tmp/stryke-gcp-put-$$-" . time()
+        my $cmd = join(" ", @argv) . " > " . GCP::_shq($tmp)
+        open my $fh, "|-", $cmd or die "GCP::Storage::put: spawn failed: $!"
+        print $fh $opts{data}
+        close $fh or do {
+            unlink $tmp
+            die "GCP::Storage::put: helper exited ($?)"
+        }
+        my $raw = ""
+        if (open my $rf, "<", $tmp) {
+            local $/
+            $raw = <$rf>
+            close $rf
+        }
+        unlink $tmp
+        return from_json $raw
+    }
+
+    if (defined $opts{input}) {
+        push @argv, "--input", GCP::_shq($opts{input})
+    } else {
+        die "GCP::Storage::put: pass data => \$bytes or input => \"path\""
+    }
+    GCP::_run_json(\@argv)
+}
+
+fn GCP::Storage::head ($uri, %opts) {
+    my @argv = GCP::_conn_argv(\%opts)
+    push @argv, "gcs", "head", GCP::_shq($uri)
+    GCP::_run_json(\@argv)
+}
+
+fn GCP::Storage::rm ($uri, %opts) {
+    my @argv = GCP::_conn_argv(\%opts)
+    push @argv, "gcs", "rm", GCP::_shq($uri)
+    GCP::_run_json(\@argv)
+}
+
+# Buckets in the configured project.
+fn GCP::Storage::buckets (%opts) {
+    my @argv = GCP::_conn_argv(\%opts)
+    push @argv, "gcs", "buckets"
+    GCP::_run_ndjson(\@argv)
+}
+
+1

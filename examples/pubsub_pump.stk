@@ -1,0 +1,17 @@
+#!/usr/bin/env stryke
+# examples/pubsub_pump.stk — long-poll a Pub/Sub subscription.
+# Run:   s examples/pubsub_pump.stk my-sub
+# Or fully qualified: s examples/pubsub_pump.stk projects/my-project/subscriptions/my-sub
+
+use GCP::PubSub
+
+my $sub = $ARGV[0]
+die "usage: pubsub_pump.stk SUBSCRIPTION\n" unless defined $sub
+
+my $n = GCP::PubSub::pump $sub,
+    iterations => 5,
+    max        => 10,
+    callback   => sub ($m) {
+        p "got $m->{message_id}: $m->{data}"
+    }
+p "handled $n messages"

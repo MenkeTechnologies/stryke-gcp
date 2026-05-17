@@ -1,0 +1,17 @@
+#!/usr/bin/env stryke
+# examples/gcs_browse.stk — list a GCS prefix.
+# Run:   s examples/gcs_browse.stk gs://my-bucket/prefix/
+
+use GCP::Storage
+
+my $uri = $ARGV[0]
+die "usage: gcs_browse.stk gs://bucket/prefix\n" unless defined $uri
+
+my @entries = GCP::Storage::ls $uri, delimiter => "/"
+for my $e (@entries) {
+    if ($e->{type} eq "prefix") {
+        p "  [dir] $e->{key}"
+    } else {
+        p sprintf("  [obj] %10d  %s", $e->{size} // 0, $e->{key})
+    }
+}
