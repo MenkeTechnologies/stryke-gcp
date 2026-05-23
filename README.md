@@ -1,12 +1,47 @@
-# stryke-gcp
+```
+ ███████╗████████╗██████╗ ██╗   ██╗██╗  ██╗███████╗
+ ██╔════╝╚══██╔══╝██╔══██╗╚██╗ ██╔╝██║ ██╔╝██╔════╝
+ ███████╗   ██║   ██████╔╝ ╚████╔╝ █████╔╝ █████╗
+ ╚════██║   ██║   ██╔══██╗  ╚██╔╝  ██╔═██╗ ██╔══╝
+ ███████║   ██║   ██║  ██║   ██║   ██║  ██╗███████╗
+ ╚══════╝   ╚═╝   ╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝╚══════╝
+                   [ g c p ]
+```
+
+[![CI](https://github.com/MenkeTechnologies/stryke-gcp/actions/workflows/ci.yml/badge.svg)](https://github.com/MenkeTechnologies/stryke-gcp/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![stryke](https://img.shields.io/badge/stryke-package-cyan.svg)](https://github.com/MenkeTechnologies/strykelang)
+
+### `[GOOGLE CLOUD CLIENT FOR STRYKE // CLOUD STORAGE + PUB/SUB]`
+
+> *"GCP from the pipe."*
 
 Google Cloud client for stryke — Cloud Storage and Pub/Sub. Opt-in package
 tier, kept out of the stryke core binary so the daily-driver install stays
 slim.
 
-Created by MenkeTechnologies.
+### [`strykelang`](https://github.com/MenkeTechnologies/strykelang) &middot; [`MenkeTechnologiesMeta`](https://github.com/MenkeTechnologies/MenkeTechnologiesMeta) · [`stryke-aws`](https://github.com/MenkeTechnologies/stryke-aws) · [`stryke-k8s`](https://github.com/MenkeTechnologies/stryke-k8s) · [`stryke-demo`](https://github.com/MenkeTechnologies/stryke-demo)
 
-## Why this is a package, not a builtin
+---
+
+## Table of Contents
+
+- [\[0x00\] Why this is a package, not a builtin](#0x00-why-this-is-a-package-not-a-builtin)
+- [\[0x01\] Scope (v1)](#0x01-scope-v1)
+- [\[0x02\] Install](#0x02-install)
+- [\[0x03\] Auth](#0x03-auth)
+- [\[0x04\] Quick start](#0x04-quick-start)
+- [\[0x05\] CLI: `gcp`](#0x05-cli-gcp)
+- [\[0x06\] API reference](#0x06-api-reference)
+- [\[0x07\] Helper protocol](#0x07-helper-protocol)
+- [\[0x08\] Tests](#0x08-tests)
+- [\[0x09\] Dev workflow](#0x09-dev-workflow)
+- [\[0x0A\] Layout](#0x0a-layout)
+- [\[0xFF\] License](#0xff-license)
+
+---
+
+## [0x00] Why this is a package, not a builtin
 
 Same rationale as the other `stryke-*` cloud packages. GCP integration
 needs an auth chain (Application Default Credentials), a TLS HTTP client,
@@ -18,7 +53,7 @@ directly via `reqwest` + `google-cloud-auth` — no heavyweight SDK crate
 involvement, no version-conflict tax from chrono / arrow / smithy that the
 proper SDK crates currently impose.
 
-## Scope (v1)
+## [0x01] Scope (v1)
 
 | Service | Status |
 |---|---|
@@ -29,7 +64,7 @@ proper SDK crates currently impose.
 | Firestore | **deferred v2** |
 | Cloud Functions / Run | **deferred v2** |
 
-## Install
+## [0x02] Install
 
 ```sh
 cd ~/projects/stryke-gcp
@@ -43,7 +78,7 @@ Or:
 make install
 ```
 
-## Auth
+## [0x03] Auth
 
 Uses **Application Default Credentials** — same chain as `gcloud`:
 
@@ -59,7 +94,7 @@ export GOOGLE_CLOUD_PROJECT=my-project-id
 
 Per call, override with `--project=...` or `project => "..."`.
 
-## Quick start
+## [0x04] Quick start
 
 ```stryke
 use GCP::Storage
@@ -103,7 +138,7 @@ GCP::Storage::ls "gs://my-bucket/", project => "other-project"
 GCP::PubSub::publish "my-topic", "x", project => "other-project"
 ```
 
-## CLI: `gcp`
+## [0x05] CLI: `gcp`
 
 ```sh
 gcp gcs ls gs://bucket/prefix/ --delimiter=/
@@ -134,7 +169,7 @@ Global flags:
 The helper has no `--region` or `--endpoint` flags — GCP is global by
 project, and the API endpoints are universal.
 
-## API reference
+## [0x06] API reference
 
 ### `use GCP`
 
@@ -171,7 +206,7 @@ Topic / subscription names accept bare (`my-topic`) or fully qualified
 (`projects/PROJECT/topics/my-topic`) forms. Bare names expand against
 `$opts{project}` or `$GOOGLE_CLOUD_PROJECT`.
 
-## Helper protocol
+## [0x07] Helper protocol
 
 ```sh
 stryke-gcp-helper gcs ls gs://bucket/prefix --delimiter=/
@@ -187,7 +222,7 @@ Output:
 * Single-object commands → one JSON object + newline.
 * All errors → exit non-zero, message on stderr.
 
-## Tests
+## [0x08] Tests
 
 ```sh
 cargo test                                          # compiles, no live calls
@@ -203,7 +238,7 @@ s test t/
 The suite skips cleanly when the helper isn't built, when ADC isn't
 reachable, or when the per-service env vars are unset.
 
-## Dev workflow
+## [0x09] Dev workflow
 
 ```sh
 make             # release build
@@ -213,7 +248,7 @@ make install
 make clean
 ```
 
-## Layout
+## [0x0A] Layout
 
 ```
 stryke-gcp/
@@ -244,6 +279,6 @@ stryke-gcp/
     release.yml                    # cross-compile + GH release on tag push
 ```
 
-## License
+## [0xFF] License
 
 MIT.
