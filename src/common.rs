@@ -405,4 +405,51 @@ mod tests {
         emit_ndjson_line(&mut buf, &serde_json::json!("")).unwrap();
         assert_eq!(String::from_utf8(buf).unwrap(), "\"\"\n");
     }
+
+    #[test]
+    fn parse_gs_uri_key_with_ampersand() {
+        let (b, k) = parse_gs_uri("gs://b/a&b").unwrap();
+        assert_eq!(b, "b");
+        assert_eq!(k, "a&b");
+    }
+
+    #[test]
+    fn url_encode_ampersand() {
+        assert_eq!(url_encode("&"), "%26");
+    }
+
+    #[test]
+    fn parse_gs_uri_rejects_s3() {
+        assert!(parse_gs_uri("s3://b/k").is_err());
+    }
+
+    #[test]
+    fn emit_ndjson_line_negative_i64() {
+        let mut buf = Vec::new();
+        emit_ndjson_line(&mut buf, &serde_json::json!(-42i64)).unwrap();
+        assert_eq!(String::from_utf8(buf).unwrap(), "-42\n");
+    }
+
+    #[test]
+    fn parse_gs_uri_bucket_with_dots() {
+        let (b, _) = parse_gs_uri("gs://my.company.data/out").unwrap();
+        assert_eq!(b, "my.company.data");
+    }
+
+    #[test]
+    fn url_encode_equals_sign() {
+        assert_eq!(url_encode("="), "%3D");
+    }
+
+    #[test]
+    fn parse_gs_uri_empty_scheme_rejected() {
+        assert!(parse_gs_uri("notgs://b/k").is_err());
+    }
+
+    #[test]
+    fn emit_ndjson_line_true_bool() {
+        let mut buf = Vec::new();
+        emit_ndjson_line(&mut buf, &serde_json::json!(true)).unwrap();
+        assert_eq!(String::from_utf8(buf).unwrap(), "true\n");
+    }
 }

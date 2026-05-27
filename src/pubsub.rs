@@ -331,6 +331,53 @@ mod tests {
         let n = full_name(Some("p"), "topics", "my-topic").unwrap();
         assert!(n.contains("/topics/"));
     }
+
+    #[test]
+    fn parse_attrs_numeric_value() {
+        let m = parse_attrs(&["code=404".into()]);
+        assert_eq!(m.get("code").map(String::as_str), Some("404"));
+    }
+
+    #[test]
+    fn full_name_topic_with_underscore() {
+        let n = full_name(Some("p"), "topics", "events_raw").unwrap();
+        assert_eq!(n, "projects/p/topics/events_raw");
+    }
+
+    #[test]
+    fn parse_attrs_three_pairs() {
+        let m = parse_attrs(&["a=1".into(), "b=2".into(), "c=3".into()]);
+        assert_eq!(m.len(), 3);
+    }
+
+    #[test]
+    fn full_name_subscription_short_hyphenated() {
+        let n = full_name(Some("prod"), "subscriptions", "worker-sub").unwrap();
+        assert_eq!(n, "projects/prod/subscriptions/worker-sub");
+    }
+
+    #[test]
+    fn parse_attrs_key_with_dot() {
+        let m = parse_attrs(&["app.version=1".into()]);
+        assert_eq!(m.get("app.version").map(String::as_str), Some("1"));
+    }
+
+    #[test]
+    fn full_name_projects_lowercase_required() {
+        assert!(full_name(None, "topics", "Projects/p/topics/t").is_err());
+    }
+
+    #[test]
+    fn parse_attrs_pipe_in_value() {
+        let m = parse_attrs(&["roles=read|write".into()]);
+        assert_eq!(m.get("roles").map(String::as_str), Some("read|write"));
+    }
+
+    #[test]
+    fn full_name_topic_fq_with_project_ignored() {
+        let n = full_name(Some("x"), "topics", "projects/real/topics/t").unwrap();
+        assert_eq!(n, "projects/real/topics/t");
+    }
 }
 
 async fn publish(
