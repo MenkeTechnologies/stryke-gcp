@@ -452,4 +452,37 @@ mod tests {
         emit_ndjson_line(&mut buf, &serde_json::json!(true)).unwrap();
         assert_eq!(String::from_utf8(buf).unwrap(), "true\n");
     }
+
+    #[test]
+    fn url_encode_space_as_percent_twenty() {
+        assert_eq!(url_encode("a b"), "a%20b");
+    }
+
+    #[test]
+    fn parse_gs_uri_key_with_spaces_encoded() {
+        let (_, k) = parse_gs_uri("gs://b/path%20name").unwrap();
+        assert_eq!(k, "path%20name");
+    }
+
+    #[test]
+    fn url_encode_slash_encoded() {
+        assert_eq!(url_encode("/"), "%2F");
+    }
+
+    #[test]
+    fn parse_gs_uri_nested_prefix() {
+        let (_, k) = parse_gs_uri("gs://b/a/b/c/d").unwrap();
+        assert_eq!(k, "a/b/c/d");
+    }
+
+    #[test]
+    fn parse_gs_uri_bucket_with_hyphen() {
+        let (b, _) = parse_gs_uri("gs://my-bucket/out").unwrap();
+        assert_eq!(b, "my-bucket");
+    }
+
+    #[test]
+    fn url_encode_hash_encoded() {
+        assert_eq!(url_encode("#"), "%23");
+    }
 }

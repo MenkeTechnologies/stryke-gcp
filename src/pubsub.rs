@@ -378,6 +378,54 @@ mod tests {
         let n = full_name(Some("x"), "topics", "projects/real/topics/t").unwrap();
         assert_eq!(n, "projects/real/topics/t");
     }
+
+    #[test]
+    fn parse_attrs_backslash_in_value() {
+        let m = parse_attrs(&["path=a\\b".into()]);
+        assert_eq!(m.get("path").map(String::as_str), Some("a\\b"));
+    }
+
+    #[test]
+    fn full_name_topic_short_numeric_project() {
+        let n = full_name(Some("123"), "topics", "t").unwrap();
+        assert_eq!(n, "projects/123/topics/t");
+    }
+
+    #[test]
+    fn parse_attrs_value_starts_with_equals() {
+        let m = parse_attrs(&["k==v".into()]);
+        assert_eq!(m.get("k").map(String::as_str), Some("=v"));
+    }
+
+    #[test]
+    fn full_name_subscription_with_dots() {
+        let n = full_name(Some("p"), "subscriptions", "sub.v2").unwrap();
+        assert_eq!(n, "projects/p/subscriptions/sub.v2");
+    }
+
+    #[test]
+    fn parse_attrs_two_malformed_one_valid() {
+        let m = parse_attrs(&["bad".into(), "k=v".into(), "also".into()]);
+        assert_eq!(m.len(), 1);
+    }
+
+    #[test]
+    fn full_name_topic_kind_literal_in_path() {
+        let n = full_name(Some("p"), "topics", "my-topic").unwrap();
+        assert!(n.ends_with("/topics/my-topic"));
+    }
+
+    #[test]
+    fn parse_attrs_semicolon_in_value() {
+        let m = parse_attrs(&["hdr=a;b".into()]);
+        assert_eq!(m.get("hdr").map(String::as_str), Some("a;b"));
+    }
+
+    #[test]
+    fn full_name_projects_prefix_exact() {
+        let n = full_name(None, "topics", "projects/p/topics/events").unwrap();
+        assert_eq!(n, "projects/p/topics/events");
+    }
 }
 
 async fn publish(
