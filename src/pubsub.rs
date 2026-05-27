@@ -155,6 +155,182 @@ mod tests {
         let m = parse_attrs(&["k=".into()]);
         assert_eq!(m.get("k").map(String::as_str), Some(""));
     }
+
+    #[test]
+    fn full_name_arbitrary_kind_segment_passthrough() {
+        // kind is not validated — any segment is accepted in the path.
+        let n = full_name(Some("p"), "queues", "x").unwrap();
+        assert_eq!(n, "projects/p/queues/x");
+    }
+
+    #[test]
+    fn full_name_short_without_project_errors() {
+        let err = full_name(None, "topics", "events").unwrap_err();
+        assert!(format!("{err}").contains("project"));
+    }
+
+    #[test]
+    fn parse_attrs_unicode_keys() {
+        let m = parse_attrs(&["種類=ログ".into()]);
+        assert_eq!(m.get("種類").map(String::as_str), Some("ログ"));
+    }
+
+    #[test]
+    fn parse_attrs_only_equals() {
+        let m = parse_attrs(&["=".into()]);
+        assert_eq!(m.get("").map(String::as_str), Some(""));
+    }
+
+    #[test]
+    fn full_name_topic_id_with_slashes_in_short_form() {
+        let n = full_name(Some("p"), "topics", "a/b/c").unwrap();
+        assert_eq!(n, "projects/p/topics/a/b/c");
+    }
+
+    #[test]
+    fn full_name_fully_qualified_ignores_kind_parameter() {
+        let n = full_name(Some("ignored"), "topics", "projects/real/topics/t1").unwrap();
+        assert_eq!(n, "projects/real/topics/t1");
+    }
+
+    #[test]
+    fn parse_attrs_multiple_equals_in_value() {
+        let m = parse_attrs(&["cfg=a=b=c".into()]);
+        assert_eq!(m.get("cfg").map(String::as_str), Some("a=b=c"));
+    }
+
+    #[test]
+    fn parse_attrs_only_key_no_value() {
+        let m = parse_attrs(&["flag".into()]);
+        assert!(!m.contains_key("flag"));
+    }
+
+    #[test]
+    fn full_name_subscription_with_hyphens() {
+        let n = full_name(Some("p"), "subscriptions", "my-sub").unwrap();
+        assert_eq!(n, "projects/p/subscriptions/my-sub");
+    }
+
+    #[test]
+    fn parse_attrs_preserves_order_last_wins_on_dup() {
+        let m = parse_attrs(&["x=1".into(), "x=2".into(), "y=3".into()]);
+        assert_eq!(m.get("x").map(String::as_str), Some("2"));
+        assert_eq!(m.get("y").map(String::as_str), Some("3"));
+    }
+
+    #[test]
+    fn parse_attrs_whitespace_trim_not_applied() {
+        let m = parse_attrs(&[" key = value ".into()]);
+        assert_eq!(m.get(" key ").map(String::as_str), Some(" value "));
+    }
+
+    #[test]
+    fn full_name_topic_numeric_id() {
+        let n = full_name(Some("p"), "topics", "12345").unwrap();
+        assert_eq!(n, "projects/p/topics/12345");
+    }
+
+    #[test]
+    fn parse_attrs_single_char_key_value() {
+        let m = parse_attrs(&["a=b".into()]);
+        assert_eq!(m.get("a").map(String::as_str), Some("b"));
+    }
+
+    #[test]
+    fn full_name_projects_prefix_case_sensitive() {
+        assert!(full_name(None, "topics", "Projects/x/topics/t").is_err());
+    }
+
+    #[test]
+    fn parse_attrs_many_pairs() {
+        let specs: Vec<String> = (0..8).map(|i| format!("k{i}={i}")).collect();
+        assert_eq!(parse_attrs(&specs).len(), 8);
+    }
+
+    #[test]
+    fn parse_attrs_empty_vec() {
+        assert!(parse_attrs(&[]).is_empty());
+    }
+
+    #[test]
+    fn parse_attrs_value_with_colon() {
+        let m = parse_attrs(&["k=v:w".into()]);
+        assert_eq!(m.get("k").map(String::as_str), Some("v:w"));
+    }
+
+    #[test]
+    fn full_name_subscription_short_form() {
+        let n = full_name(Some("proj"), "subscriptions", "sub1").unwrap();
+        assert_eq!(n, "projects/proj/subscriptions/sub1");
+    }
+
+    #[test]
+    fn full_name_fully_qualified_subscription() {
+        let n = full_name(
+            Some("ignored"),
+            "subscriptions",
+            "projects/p/subscriptions/s",
+        )
+        .unwrap();
+        assert_eq!(n, "projects/p/subscriptions/s");
+    }
+
+    #[test]
+    fn parse_attrs_duplicate_key_last_wins() {
+        let m = parse_attrs(&["a=1".into(), "a=2".into()]);
+        assert_eq!(m.get("a").map(String::as_str), Some("2"));
+    }
+
+    #[test]
+    fn full_name_topic_with_dots_in_id() {
+        let n = full_name(Some("p"), "topics", "events.v2").unwrap();
+        assert_eq!(n, "projects/p/topics/events.v2");
+    }
+
+    #[test]
+    fn full_name_short_without_project_still_errors() {
+        assert!(full_name(None, "topics", "my-topic").is_err());
+    }
+
+    #[test]
+    fn parse_attrs_colon_only_pair_dropped() {
+        assert!(parse_attrs(&["k:v:w".into()]).is_empty());
+    }
+
+    #[test]
+    fn full_name_subscription_fully_qualified() {
+        let n = full_name(None, "subscriptions", "projects/p/subscriptions/s").unwrap();
+        assert_eq!(n, "projects/p/subscriptions/s");
+    }
+
+    #[test]
+    fn parse_attrs_key_with_dash() {
+        let m = parse_attrs(&["x-request-id=req".into()]);
+        assert_eq!(m.get("x-request-id").map(String::as_str), Some("req"));
+    }
+
+    #[test]
+    fn full_name_topic_short_with_project() {
+        let n = full_name(Some("prod"), "topics", "events").unwrap();
+        assert_eq!(n, "projects/prod/topics/events");
+    }
+
+    #[test]
+    fn full_name_wrong_prefix_errors() {
+        assert!(full_name(None, "topics", "project/p/topics/t").is_err());
+    }
+
+    #[test]
+    fn parse_attrs_unicode_value() {
+        let m = parse_attrs(&["msg=日本語".into()]);
+        assert_eq!(m.get("msg").map(String::as_str), Some("日本語"));
+    }
+
+    #[test]
+    fn full_name_kind_segment_in_short_form() {
+        let n = full_name(Some("p"), "topics", "my-topic").unwrap();
+        assert!(n.contains("/topics/"));
+    }
 }
 
 async fn publish(

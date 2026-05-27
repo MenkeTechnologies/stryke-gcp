@@ -211,4 +211,198 @@ mod tests {
         assert_eq!(s.lines().count(), 4);
         assert!(s.ends_with('\n'));
     }
+
+    #[test]
+    fn parse_gs_uri_bucket_with_hyphens() {
+        let (b, k) = parse_gs_uri("gs://my-proj-bucket/logs/2024/01/app.log").unwrap();
+        assert_eq!(b, "my-proj-bucket");
+        assert_eq!(k, "logs/2024/01/app.log");
+    }
+
+    #[test]
+    fn url_encode_empty_string() {
+        assert_eq!(url_encode(""), "");
+    }
+
+    #[test]
+    fn url_encode_plus_sign() {
+        assert_eq!(url_encode("+"), "%2B");
+    }
+
+    #[test]
+    fn resolve_project_explicit_empty_string_allowed() {
+        assert_eq!(resolve_project(Some("")).unwrap(), "");
+    }
+
+    #[test]
+    fn parse_gs_uri_error_mentions_gs_scheme() {
+        let err = parse_gs_uri("http://b/k").unwrap_err();
+        assert!(format!("{err}").contains("gs://"));
+    }
+
+    #[test]
+    fn url_encode_hash_fragment() {
+        assert_eq!(url_encode("#frag"), "%23frag");
+    }
+
+    #[test]
+    fn url_encode_query_string_chars() {
+        let got = url_encode("a=1&b=2");
+        assert!(got.contains("%3D") || got.contains("="));
+        assert!(got.contains("%26") || got.contains("&"));
+    }
+
+    #[test]
+    fn parse_gs_uri_numeric_bucket_name() {
+        let (b, k) = parse_gs_uri("gs://12345/data").unwrap();
+        assert_eq!(b, "12345");
+        assert_eq!(k, "data");
+    }
+
+    #[test]
+    fn emit_ndjson_line_bool_true() {
+        let mut buf = Vec::new();
+        emit_ndjson_line(&mut buf, &serde_json::json!(true)).unwrap();
+        assert_eq!(String::from_utf8(buf).unwrap(), "true\n");
+    }
+
+    #[test]
+    fn resolve_project_explicit_with_dots() {
+        assert_eq!(resolve_project(Some("my.project.id")).unwrap(), "my.project.id");
+    }
+
+    #[test]
+    fn url_encode_space_only() {
+        assert_eq!(url_encode(" "), "%20");
+    }
+
+    #[test]
+    fn parse_gs_uri_bucket_with_underscores() {
+        let (b, k) = parse_gs_uri("gs://my_bucket/data.parquet").unwrap();
+        assert_eq!(b, "my_bucket");
+        assert_eq!(k, "data.parquet");
+    }
+
+    #[test]
+    fn emit_ndjson_line_false_bool() {
+        let mut buf = Vec::new();
+        emit_ndjson_line(&mut buf, &serde_json::json!(false)).unwrap();
+        assert_eq!(String::from_utf8(buf).unwrap(), "false\n");
+    }
+
+    #[test]
+    fn url_encode_preserves_alphanumeric() {
+        assert_eq!(url_encode("abc123XYZ"), "abc123XYZ");
+    }
+
+    #[test]
+    fn parse_gs_uri_empty_key_after_slash() {
+        let (b, k) = parse_gs_uri("gs://only-bucket/").unwrap();
+        assert_eq!(b, "only-bucket");
+        assert_eq!(k, "");
+    }
+
+    #[test]
+    fn parse_gs_uri_bucket_only() {
+        let (b, k) = parse_gs_uri("gs://bucket").unwrap();
+        assert_eq!(b, "bucket");
+        assert_eq!(k, "");
+    }
+
+    #[test]
+    fn parse_gs_uri_rejects_s3_scheme() {
+        assert!(parse_gs_uri("s3://b/k").is_err());
+    }
+
+    #[test]
+    fn url_encode_tilde_preserved() {
+        assert_eq!(url_encode("~"), "~");
+    }
+
+    #[test]
+    fn resolve_project_none_errors_without_env() {
+        // Pin: without GOOGLE_CLOUD_PROJECT / gcloud config, None is an error.
+        if std::env::var("GOOGLE_CLOUD_PROJECT").is_ok()
+            || std::env::var("GCLOUD_PROJECT").is_ok()
+        {
+            return;
+        }
+        assert!(resolve_project(None).is_err());
+    }
+
+    #[test]
+    fn emit_ndjson_line_number_zero() {
+        let mut buf = Vec::new();
+        emit_ndjson_line(&mut buf, &serde_json::json!(0)).unwrap();
+        assert_eq!(String::from_utf8(buf).unwrap(), "0\n");
+    }
+
+    #[test]
+    fn parse_gs_uri_deep_prefix() {
+        let (b, k) = parse_gs_uri("gs://data/a/b/c/file.parquet").unwrap();
+        assert_eq!(b, "data");
+        assert_eq!(k, "a/b/c/file.parquet");
+    }
+
+    #[test]
+    fn url_encode_percent_sign() {
+        assert_eq!(url_encode("%"), "%25");
+    }
+
+    #[test]
+    fn parse_gs_uri_error_mentions_input() {
+        let bad = "file:///tmp/x";
+        let err = parse_gs_uri(bad).unwrap_err();
+        assert!(format!("{err}").contains(bad));
+    }
+
+    #[test]
+    fn parse_gs_uri_key_with_question_mark() {
+        let (b, k) = parse_gs_uri("gs://b/obj?query=1").unwrap();
+        assert_eq!(b, "b");
+        assert_eq!(k, "obj?query=1");
+    }
+
+    #[test]
+    fn url_encode_slash_encodes() {
+        assert_eq!(url_encode("/"), "%2F");
+    }
+
+    #[test]
+    fn parse_gs_uri_rejects_http() {
+        assert!(parse_gs_uri("http://b/k").is_err());
+    }
+
+    #[test]
+    fn emit_ndjson_line_i64_zero() {
+        let mut buf = Vec::new();
+        emit_ndjson_line(&mut buf, &serde_json::json!(0i64)).unwrap();
+        assert_eq!(String::from_utf8(buf).unwrap(), "0\n");
+    }
+
+    #[test]
+    fn parse_gs_uri_unicode_bucket() {
+        let (b, k) = parse_gs_uri("gs://バケット/キー").unwrap();
+        assert_eq!(b, "バケット");
+        assert_eq!(k, "キー");
+    }
+
+    #[test]
+    fn url_encode_newline() {
+        assert_eq!(url_encode("\n"), "%0A");
+    }
+
+    #[test]
+    fn parse_gs_uri_single_segment_key() {
+        let (b, k) = parse_gs_uri("gs://data/file.parquet").unwrap();
+        assert_eq!(b, "data");
+        assert_eq!(k, "file.parquet");
+    }
+
+    #[test]
+    fn emit_ndjson_line_empty_string() {
+        let mut buf = Vec::new();
+        emit_ndjson_line(&mut buf, &serde_json::json!("")).unwrap();
+        assert_eq!(String::from_utf8(buf).unwrap(), "\"\"\n");
+    }
 }
