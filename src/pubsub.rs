@@ -86,6 +86,77 @@ fn parse_attrs(kvs: &[String]) -> std::collections::HashMap<String, String> {
     map
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ─── full_name ───────────────────────────────────────────────────
+
+    #[test]
+    fn full_name_passes_through_fully_qualified() {
+        // Already-fully-qualified names go through unchanged regardless
+        // of `project` and `kind`.
+        let n = full_name(None, "topics", "projects/p/topics/t").unwrap();
+        assert_eq!(n, "projects/p/topics/t");
+        let n = full_name(Some("ignored"), "subscriptions", "projects/X/subscriptions/Y").unwrap();
+        assert_eq!(n, "projects/X/subscriptions/Y");
+    }
+
+    #[test]
+    fn full_name_short_form_combined_with_explicit_project() {
+        let n = full_name(Some("my-project"), "topics", "events").unwrap();
+        assert_eq!(n, "projects/my-project/topics/events");
+    }
+
+    #[test]
+    fn full_name_subscriptions_kind() {
+        let n = full_name(Some("p"), "subscriptions", "sub-1").unwrap();
+        assert_eq!(n, "projects/p/subscriptions/sub-1");
+    }
+
+    // ─── parse_attrs ─────────────────────────────────────────────────
+
+    #[test]
+    fn parse_attrs_empty() {
+        let m = parse_attrs(&[]);
+        assert!(m.is_empty());
+    }
+
+    #[test]
+    fn parse_attrs_basic_pairs() {
+        let m = parse_attrs(&["a=1".into(), "b=two".into()]);
+        assert_eq!(m.get("a").map(String::as_str), Some("1"));
+        assert_eq!(m.get("b").map(String::as_str), Some("two"));
+    }
+
+    #[test]
+    fn parse_attrs_value_with_equals_preserved() {
+        // split_once('=') splits on FIRST '=' — value can contain '='.
+        let m = parse_attrs(&["jwt=a.b=c.d".into()]);
+        assert_eq!(m.get("jwt").map(String::as_str), Some("a.b=c.d"));
+    }
+
+    #[test]
+    fn parse_attrs_drops_malformed_silently() {
+        // No '=' → silently dropped (no error path in current impl).
+        let m = parse_attrs(&["a=1".into(), "no-equals".into(), "b=2".into()]);
+        assert_eq!(m.len(), 2);
+        assert!(!m.contains_key("no-equals"));
+    }
+
+    #[test]
+    fn parse_attrs_last_wins_on_duplicate_key() {
+        let m = parse_attrs(&["k=first".into(), "k=second".into()]);
+        assert_eq!(m.get("k").map(String::as_str), Some("second"));
+    }
+
+    #[test]
+    fn parse_attrs_empty_value() {
+        let m = parse_attrs(&["k=".into()]);
+        assert_eq!(m.get("k").map(String::as_str), Some(""));
+    }
+}
+
 async fn publish(
     client: &reqwest::Client,
     headers: &http::HeaderMap,
