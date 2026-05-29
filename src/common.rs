@@ -484,4 +484,59 @@ mod tests {
     fn url_encode_hash_encoded() {
         assert_eq!(url_encode("#"), "%23");
     }
+
+    // ─── parse_gs_uri error-shape pins ───────────────────────────────
+    //
+    // CLI scripts grep error output for the offending URI; the
+    // expected-form hint helps users self-correct without re-reading
+    // docs. Drift in either string silently changes script behavior.
+
+    #[test]
+    fn parse_gs_uri_error_mentions_expected_form() {
+        let err = parse_gs_uri("not-a-gs-uri").unwrap_err();
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("gs://bucket/key"),
+            "error should hint at expected URI shape; got: {msg}"
+        );
+    }
+
+    #[test]
+    fn parse_gs_uri_error_echoes_offending_input() {
+        let err = parse_gs_uri("http://wrong-scheme/x").unwrap_err();
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("http://wrong-scheme/x"),
+            "error should echo offending input; got: {msg}"
+        );
+    }
+
+    #[test]
+    fn parse_gs_uri_empty_input_is_rejected() {
+        let err = parse_gs_uri("").unwrap_err();
+        assert!(format!("{err}").contains("gs://bucket/key"));
+    }
+
+    // ─── url_encode complements existing positive pins ───────────────
+    //
+    // The reserved-character table is contractual: GCS rejects any
+    // bucket / object key containing un-percent-encoded reserved
+    // characters. If `urlencoding` upstream relaxed defaults this
+    // would fail loudly at unit time, not silently in production.
+
+    #[test]
+    fn url_encode_reserved_chars_table() {
+        assert_eq!(url_encode("/"), "%2F");
+        assert_eq!(url_encode("?"), "%3F");
+        assert_eq!(url_encode("&"), "%26");
+        assert_eq!(url_encode(" "), "%20");
+        assert_eq!(url_encode("+"), "%2B");
+    }
+
+    #[test]
+    fn url_encode_passes_unreserved_unchanged() {
+        // RFC 3986 unreserved: alpha / digit / `-._~` — must NOT be
+        // percent-encoded.
+        assert_eq!(url_encode("ABCxyz0189-._~"), "ABCxyz0189-._~");
+    }
 }
