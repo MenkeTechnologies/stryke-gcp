@@ -320,3 +320,77 @@ async fn buckets(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    #[derive(Parser, Debug)]
+    struct TestCli {
+        #[command(subcommand)]
+        cmd: GcsCmd,
+    }
+
+    fn parse(args: &[&str]) -> Result<GcsCmd, clap::Error> {
+        let mut argv = vec!["stryke-gcp-helper"];
+        argv.extend_from_slice(args);
+        TestCli::try_parse_from(argv).map(|c| c.cmd)
+    }
+
+    #[test]
+    fn buckets_parses_as_unit_variant() {
+        let cmd = parse(&["buckets"]).expect("parse");
+        assert!(matches!(cmd, GcsCmd::Buckets));
+    }
+
+    #[test]
+    fn ls_default_page_size_is_gcs_max_1000() {
+        // Pin: GCS API hard cap. Drift to a lower value silently
+        // multiplies round-trips on large listings.
+        let cmd = parse(&["ls", "gs://b/k"]).expect("parse");
+        match cmd {
+            GcsCmd::Ls { page_size, .. } => assert_eq!(page_size, 1000),
+            _ => panic!("expected Ls"),
+        }
+    }
+
+    #[test]
+    fn get_default_output_is_dash_stdout() {
+        // Pin: bare `get gs://...` streams to stdout. A drift to file
+        // path would clobber arbitrary CWD files.
+        let cmd = parse(&["get", "gs://b/k"]).expect("parse");
+        match cmd {
+            GcsCmd::Get { output, .. } => assert_eq!(output, "-"),
+            _ => panic!("expected Get"),
+        }
+    }
+
+    #[test]
+    fn put_defaults_input_dash_and_content_type_octet_stream() {
+        let cmd = parse(&["put", "gs://b/k"]).expect("parse");
+        match cmd {
+            GcsCmd::Put {
+                input,
+                content_type,
+                ..
+            } => {
+                assert_eq!(input, "-");
+                assert_eq!(content_type, "application/octet-stream");
+            }
+            _ => panic!("expected Put"),
+        }
+    }
+
+    #[test]
+    fn rm_and_head_require_uri_positional() {
+        assert_eq!(
+            parse(&["rm"]).unwrap_err().kind(),
+            clap::error::ErrorKind::MissingRequiredArgument
+        );
+        assert_eq!(
+            parse(&["head"]).unwrap_err().kind(),
+            clap::error::ErrorKind::MissingRequiredArgument
+        );
+    }
+}
