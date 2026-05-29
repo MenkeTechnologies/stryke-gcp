@@ -54,12 +54,38 @@ pub async fn dispatch(project: Option<&str>, cmd: GcsCmd) -> Result<()> {
     let client = http_client()?;
     let headers = auth_headers().await?;
     match cmd {
-        GcsCmd::Ls { uri, delimiter, page_size, limit } => {
-            ls(&client, &headers, &uri, delimiter.as_deref(), page_size, limit).await
+        GcsCmd::Ls {
+            uri,
+            delimiter,
+            page_size,
+            limit,
+        } => {
+            ls(
+                &client,
+                &headers,
+                &uri,
+                delimiter.as_deref(),
+                page_size,
+                limit,
+            )
+            .await
         }
         GcsCmd::Get { uri, output } => get(&client, &headers, &uri, &output).await,
-        GcsCmd::Put { uri, input, content_type, cache_control } => {
-            put(&client, &headers, &uri, &input, &content_type, cache_control.as_deref()).await
+        GcsCmd::Put {
+            uri,
+            input,
+            content_type,
+            cache_control,
+        } => {
+            put(
+                &client,
+                &headers,
+                &uri,
+                &input,
+                &content_type,
+                cache_control.as_deref(),
+            )
+            .await
         }
         GcsCmd::Head { uri } => head(&client, &headers, &uri).await,
         GcsCmd::Rm { uri } => rm(&client, &headers, &uri).await,
@@ -228,20 +254,12 @@ async fn put(
     }))
 }
 
-async fn head(
-    client: &reqwest::Client,
-    headers: &http::HeaderMap,
-    uri: &str,
-) -> Result<()> {
+async fn head(client: &reqwest::Client, headers: &http::HeaderMap, uri: &str) -> Result<()> {
     let (bucket, key) = parse_gs_uri(uri)?;
     if key.is_empty() {
         anyhow::bail!("head needs a full object URI (gs://bucket/key)");
     }
-    let url = format!(
-        "{BASE}/b/{}/o/{}",
-        url_encode(&bucket),
-        url_encode(&key)
-    );
+    let url = format!("{BASE}/b/{}/o/{}", url_encode(&bucket), url_encode(&key));
     let v = json_request(client.get(&url).headers(headers.clone())).await?;
     emit_json(&json!({
         "bucket": v.get("bucket"),
@@ -257,20 +275,12 @@ async fn head(
     }))
 }
 
-async fn rm(
-    client: &reqwest::Client,
-    headers: &http::HeaderMap,
-    uri: &str,
-) -> Result<()> {
+async fn rm(client: &reqwest::Client, headers: &http::HeaderMap, uri: &str) -> Result<()> {
     let (bucket, key) = parse_gs_uri(uri)?;
     if key.is_empty() {
         anyhow::bail!("rm needs a full object URI (gs://bucket/key)");
     }
-    let url = format!(
-        "{BASE}/b/{}/o/{}",
-        url_encode(&bucket),
-        url_encode(&key)
-    );
+    let url = format!("{BASE}/b/{}/o/{}", url_encode(&bucket), url_encode(&key));
     let resp = client
         .delete(&url)
         .headers(headers.clone())

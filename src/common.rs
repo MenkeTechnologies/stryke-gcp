@@ -38,15 +38,12 @@ pub async fn auth_headers() -> Result<HeaderMap> {
         .build()
         .context("loading default GCP credentials")?;
     let ext = http::Extensions::new();
-    let cacheable = creds
-        .headers(ext)
-        .await
-        .context("fetching access token")?;
+    let cacheable = creds.headers(ext).await.context("fetching access token")?;
     match cacheable {
         CacheableResource::New { data, .. } => Ok(data),
-        CacheableResource::NotModified => {
-            Err(anyhow!("credentials returned NotModified without a fresh header set"))
-        }
+        CacheableResource::NotModified => Err(anyhow!(
+            "credentials returned NotModified without a fresh header set"
+        )),
     }
 }
 
@@ -268,7 +265,10 @@ mod tests {
 
     #[test]
     fn resolve_project_explicit_with_dots() {
-        assert_eq!(resolve_project(Some("my.project.id")).unwrap(), "my.project.id");
+        assert_eq!(
+            resolve_project(Some("my.project.id")).unwrap(),
+            "my.project.id"
+        );
     }
 
     #[test]
@@ -322,8 +322,7 @@ mod tests {
     #[test]
     fn resolve_project_none_errors_without_env() {
         // Pin: without GOOGLE_CLOUD_PROJECT / gcloud config, None is an error.
-        if std::env::var("GOOGLE_CLOUD_PROJECT").is_ok()
-            || std::env::var("GCLOUD_PROJECT").is_ok()
+        if std::env::var("GOOGLE_CLOUD_PROJECT").is_ok() || std::env::var("GCLOUD_PROJECT").is_ok()
         {
             return;
         }

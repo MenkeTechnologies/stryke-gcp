@@ -53,11 +53,39 @@ pub async fn dispatch(project: Option<&str>, cmd: PubSubCmd) -> Result<()> {
     let client = http_client()?;
     let headers = auth_headers().await?;
     match cmd {
-        PubSubCmd::Publish { topic, data, attrs, ordering_key } => {
-            publish(&client, &headers, project, &topic, &data, &attrs, ordering_key.as_deref()).await
+        PubSubCmd::Publish {
+            topic,
+            data,
+            attrs,
+            ordering_key,
+        } => {
+            publish(
+                &client,
+                &headers,
+                project,
+                &topic,
+                &data,
+                &attrs,
+                ordering_key.as_deref(),
+            )
+            .await
         }
-        PubSubCmd::Pull { subscription, max, ack, deadline } => {
-            pull(&client, &headers, project, &subscription, max, ack, deadline).await
+        PubSubCmd::Pull {
+            subscription,
+            max,
+            ack,
+            deadline,
+        } => {
+            pull(
+                &client,
+                &headers,
+                project,
+                &subscription,
+                max,
+                ack,
+                deadline,
+            )
+            .await
         }
         PubSubCmd::Ack { subscription, ids } => {
             ack(&client, &headers, project, &subscription, &ids).await
@@ -86,6 +114,171 @@ fn parse_attrs(kvs: &[String]) -> std::collections::HashMap<String, String> {
     map
 }
 
+async fn publish(
+    client: &reqwest::Client,
+    headers: &http::HeaderMap,
+    project: Option<&str>,
+    topic: &str,
+    data: &str,
+    attrs: &[String],
+    ordering_key: Option<&str>,
+) -> Result<()> {
+    let full = full_name(project, "topics", topic)?;
+    let url = format!("{BASE}/{full}:publish");
+    let mut msg = json!({
+        "data": B64.encode(data.as_bytes()),
+        "attributes": parse_attrs(attrs),
+    });
+    if let Some(ok) = ordering_key {
+        msg["orderingKey"] = json!(ok);
+    }
+    let body = json!({ "messages": [msg] });
+    let v = json_request(client.post(&url).headers(headers.clone()).json(&body)).await?;
+    let ids: Vec<String> = v
+        .get("messageIds")
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+    emit_json(&json!({
+        "topic": full,
+        "message_id": ids.first().cloned(),
+    }))
+}
+
+async fn pull(
+    client: &reqwest::Client,
+    headers: &http::HeaderMap,
+    project: Option<&str>,
+    subscription: &str,
+    max: i32,
+    ack: bool,
+    _deadline: i32,
+) -> Result<()> {
+    let full = full_name(project, "subscriptions", subscription)?;
+    let url = format!("{BASE}/{full}:pull");
+    let body = json!({
+        "maxMessages": max,
+        "returnImmediately": false,
+    });
+    let resp = json_request(client.post(&url).headers(headers.clone()).json(&body)).await?;
+
+    let messages = resp
+        .get("receivedMessages")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    let stdout = io::stdout();
+    let mut out = BufWriter::new(stdout.lock());
+
+    let mut ack_ids: Vec<String> = Vec::new();
+    for rm in &messages {
+        let ack_id = rm.get("ackId").and_then(|v| v.as_str()).map(String::from);
+        let msg = rm.get("message").cloned().unwrap_or(Value::Null);
+        let data_b64 = msg.get("data").and_then(|v| v.as_str()).unwrap_or("");
+        let data = B64
+            .decode(data_b64)
+            .ok()
+            .and_then(|b| String::from_utf8(b).ok())
+            .unwrap_or_else(|| data_b64.to_string());
+        emit_ndjson_line(
+            &mut out,
+            &json!({
+                "ack_id": ack_id,
+                "message_id": msg.get("messageId"),
+                "data": data,
+                "attributes": msg.get("attributes"),
+                "publish_time": msg.get("publishTime"),
+                "ordering_key": msg.get("orderingKey"),
+            }),
+        )?;
+        if ack {
+            if let Some(id) = ack_id {
+                ack_ids.push(id);
+            }
+        }
+    }
+    if !ack_ids.is_empty() {
+        let ack_url = format!("{BASE}/{full}:acknowledge");
+        let _ = json_request(
+            client
+                .post(&ack_url)
+                .headers(headers.clone())
+                .json(&json!({ "ackIds": ack_ids })),
+        )
+        .await
+        .context("acknowledge")?;
+    }
+    Ok(())
+}
+
+async fn ack(
+    client: &reqwest::Client,
+    headers: &http::HeaderMap,
+    project: Option<&str>,
+    subscription: &str,
+    ids: &str,
+) -> Result<()> {
+    let full = full_name(project, "subscriptions", subscription)?;
+    let url = format!("{BASE}/{full}:acknowledge");
+    let ack_ids: Vec<&str> = ids.split(',').filter(|s| !s.is_empty()).collect();
+    let _ = json_request(
+        client
+            .post(&url)
+            .headers(headers.clone())
+            .json(&json!({ "ackIds": ack_ids })),
+    )
+    .await?;
+    emit_json(&json!({ "subscription": full, "acked": ack_ids.len() }))
+}
+
+async fn topics(
+    client: &reqwest::Client,
+    headers: &http::HeaderMap,
+    project: Option<&str>,
+) -> Result<()> {
+    let p = resolve_project(project)?;
+    let url = format!("{BASE}/projects/{p}/topics");
+    let v = json_request(client.get(&url).headers(headers.clone())).await?;
+    let stdout = io::stdout();
+    let mut out = BufWriter::new(stdout.lock());
+    if let Some(items) = v.get("topics").and_then(|v| v.as_array()) {
+        for t in items {
+            emit_ndjson_line(&mut out, &json!({ "name": t.get("name") }))?;
+        }
+    }
+    Ok(())
+}
+
+async fn subs(
+    client: &reqwest::Client,
+    headers: &http::HeaderMap,
+    project: Option<&str>,
+) -> Result<()> {
+    let p = resolve_project(project)?;
+    let url = format!("{BASE}/projects/{p}/subscriptions");
+    let v = json_request(client.get(&url).headers(headers.clone())).await?;
+    let stdout = io::stdout();
+    let mut out = BufWriter::new(stdout.lock());
+    if let Some(items) = v.get("subscriptions").and_then(|v| v.as_array()) {
+        for s in items {
+            emit_ndjson_line(
+                &mut out,
+                &json!({
+                    "name": s.get("name"),
+                    "topic": s.get("topic"),
+                    "ack_deadline_seconds": s.get("ackDeadlineSeconds"),
+                }),
+            )?;
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -98,7 +291,12 @@ mod tests {
         // of `project` and `kind`.
         let n = full_name(None, "topics", "projects/p/topics/t").unwrap();
         assert_eq!(n, "projects/p/topics/t");
-        let n = full_name(Some("ignored"), "subscriptions", "projects/X/subscriptions/Y").unwrap();
+        let n = full_name(
+            Some("ignored"),
+            "subscriptions",
+            "projects/X/subscriptions/Y",
+        )
+        .unwrap();
         assert_eq!(n, "projects/X/subscriptions/Y");
     }
 
@@ -426,177 +624,4 @@ mod tests {
         let n = full_name(None, "topics", "projects/p/topics/events").unwrap();
         assert_eq!(n, "projects/p/topics/events");
     }
-}
-
-async fn publish(
-    client: &reqwest::Client,
-    headers: &http::HeaderMap,
-    project: Option<&str>,
-    topic: &str,
-    data: &str,
-    attrs: &[String],
-    ordering_key: Option<&str>,
-) -> Result<()> {
-    let full = full_name(project, "topics", topic)?;
-    let url = format!("{BASE}/{full}:publish");
-    let mut msg = json!({
-        "data": B64.encode(data.as_bytes()),
-        "attributes": parse_attrs(attrs),
-    });
-    if let Some(ok) = ordering_key {
-        msg["orderingKey"] = json!(ok);
-    }
-    let body = json!({ "messages": [msg] });
-    let v = json_request(
-        client
-            .post(&url)
-            .headers(headers.clone())
-            .json(&body),
-    )
-    .await?;
-    let ids: Vec<String> = v
-        .get("messageIds")
-        .and_then(|v| v.as_array())
-        .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
-        .unwrap_or_default();
-    emit_json(&json!({
-        "topic": full,
-        "message_id": ids.first().cloned(),
-    }))
-}
-
-async fn pull(
-    client: &reqwest::Client,
-    headers: &http::HeaderMap,
-    project: Option<&str>,
-    subscription: &str,
-    max: i32,
-    ack: bool,
-    _deadline: i32,
-) -> Result<()> {
-    let full = full_name(project, "subscriptions", subscription)?;
-    let url = format!("{BASE}/{full}:pull");
-    let body = json!({
-        "maxMessages": max,
-        "returnImmediately": false,
-    });
-    let resp = json_request(
-        client
-            .post(&url)
-            .headers(headers.clone())
-            .json(&body),
-    )
-    .await?;
-
-    let messages = resp
-        .get("receivedMessages")
-        .and_then(|v| v.as_array())
-        .cloned()
-        .unwrap_or_default();
-
-    let stdout = io::stdout();
-    let mut out = BufWriter::new(stdout.lock());
-
-    let mut ack_ids: Vec<String> = Vec::new();
-    for rm in &messages {
-        let ack_id = rm.get("ackId").and_then(|v| v.as_str()).map(String::from);
-        let msg = rm.get("message").cloned().unwrap_or(Value::Null);
-        let data_b64 = msg.get("data").and_then(|v| v.as_str()).unwrap_or("");
-        let data = B64
-            .decode(data_b64)
-            .ok()
-            .and_then(|b| String::from_utf8(b).ok())
-            .unwrap_or_else(|| data_b64.to_string());
-        emit_ndjson_line(
-            &mut out,
-            &json!({
-                "ack_id": ack_id,
-                "message_id": msg.get("messageId"),
-                "data": data,
-                "attributes": msg.get("attributes"),
-                "publish_time": msg.get("publishTime"),
-                "ordering_key": msg.get("orderingKey"),
-            }),
-        )?;
-        if ack {
-            if let Some(id) = ack_id {
-                ack_ids.push(id);
-            }
-        }
-    }
-    if !ack_ids.is_empty() {
-        let ack_url = format!("{BASE}/{full}:acknowledge");
-        let _ = json_request(
-            client
-                .post(&ack_url)
-                .headers(headers.clone())
-                .json(&json!({ "ackIds": ack_ids })),
-        )
-        .await
-        .context("acknowledge")?;
-    }
-    Ok(())
-}
-
-async fn ack(
-    client: &reqwest::Client,
-    headers: &http::HeaderMap,
-    project: Option<&str>,
-    subscription: &str,
-    ids: &str,
-) -> Result<()> {
-    let full = full_name(project, "subscriptions", subscription)?;
-    let url = format!("{BASE}/{full}:acknowledge");
-    let ack_ids: Vec<&str> = ids.split(',').filter(|s| !s.is_empty()).collect();
-    let _ = json_request(
-        client
-            .post(&url)
-            .headers(headers.clone())
-            .json(&json!({ "ackIds": ack_ids })),
-    )
-    .await?;
-    emit_json(&json!({ "subscription": full, "acked": ack_ids.len() }))
-}
-
-async fn topics(
-    client: &reqwest::Client,
-    headers: &http::HeaderMap,
-    project: Option<&str>,
-) -> Result<()> {
-    let p = resolve_project(project)?;
-    let url = format!("{BASE}/projects/{p}/topics");
-    let v = json_request(client.get(&url).headers(headers.clone())).await?;
-    let stdout = io::stdout();
-    let mut out = BufWriter::new(stdout.lock());
-    if let Some(items) = v.get("topics").and_then(|v| v.as_array()) {
-        for t in items {
-            emit_ndjson_line(&mut out, &json!({ "name": t.get("name") }))?;
-        }
-    }
-    Ok(())
-}
-
-async fn subs(
-    client: &reqwest::Client,
-    headers: &http::HeaderMap,
-    project: Option<&str>,
-) -> Result<()> {
-    let p = resolve_project(project)?;
-    let url = format!("{BASE}/projects/{p}/subscriptions");
-    let v = json_request(client.get(&url).headers(headers.clone())).await?;
-    let stdout = io::stdout();
-    let mut out = BufWriter::new(stdout.lock());
-    if let Some(items) = v.get("subscriptions").and_then(|v| v.as_array()) {
-        for s in items {
-            emit_ndjson_line(
-                &mut out,
-                &json!({
-                    "name": s.get("name"),
-                    "topic": s.get("topic"),
-                    "ack_deadline_seconds": s.get("ackDeadlineSeconds"),
-                }),
-            )?;
-        }
-    }
-    Ok(())
 }
