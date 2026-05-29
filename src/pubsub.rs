@@ -624,4 +624,138 @@ mod tests {
         let n = full_name(None, "topics", "projects/p/topics/events").unwrap();
         assert_eq!(n, "projects/p/topics/events");
     }
+
+    // ─── clap parsing — PubSubCmd subcommand routing ───────────────────
+    // Previous round pinned GcsCmd. PubSubCmd had only pure-function
+    // helpers tested (full_name / parse_attrs). These pin: unit-variants
+    // Topics/Subs route correctly; Publish requires topic positional +
+    // --data flag; Pull defaults max=10/deadline=30 (Google's recommended
+    // long-poll defaults); Ack requires both subscription + --ids; Pull
+    // --ack default off (no surprise acknowledgments).
+
+    use clap::Parser;
+
+    #[derive(Parser, Debug)]
+    struct TestCli {
+        #[command(subcommand)]
+        cmd: PubSubCmd,
+    }
+
+    fn parse_pubsub(args: &[&str]) -> Result<PubSubCmd, clap::Error> {
+        let mut argv = vec!["stryke-gcp-helper"];
+        argv.extend_from_slice(args);
+        TestCli::try_parse_from(argv).map(|c| c.cmd)
+    }
+
+    #[test]
+    fn pubsub_topics_and_subs_are_unit_variants() {
+        let cmd = parse_pubsub(&["topics"]).expect("parse");
+        assert!(matches!(cmd, PubSubCmd::Topics));
+        let cmd = parse_pubsub(&["subs"]).expect("parse");
+        assert!(matches!(cmd, PubSubCmd::Subs));
+    }
+
+    #[test]
+    fn pubsub_publish_requires_topic_and_data_flag() {
+        // Pin: clap rejects publish without topic positional or --data.
+        // Drift would let an empty publish reach the API as a 400.
+        use clap::error::ErrorKind::MissingRequiredArgument;
+        assert_eq!(
+            parse_pubsub(&["publish"]).unwrap_err().kind(),
+            MissingRequiredArgument
+        );
+        assert_eq!(
+            parse_pubsub(&["publish", "events"]).unwrap_err().kind(),
+            MissingRequiredArgument
+        );
+        let cmd = parse_pubsub(&["publish", "events", "--data", "hello"]).expect("parse");
+        match cmd {
+            PubSubCmd::Publish {
+                topic,
+                data,
+                attrs,
+                ordering_key,
+            } => {
+                assert_eq!(topic, "events");
+                assert_eq!(data, "hello");
+                assert!(attrs.is_empty());
+                assert!(ordering_key.is_none());
+            }
+            _ => panic!("expected Publish"),
+        }
+    }
+
+    #[test]
+    fn pubsub_publish_attrs_repeatable_and_ordering_key_optional() {
+        // Pin: --attr k=v is repeatable (Vec<String>), and --ordering-key
+        // threads through when supplied.
+        let cmd = parse_pubsub(&[
+            "publish",
+            "events",
+            "--data",
+            "x",
+            "--attr",
+            "a=1",
+            "--attr",
+            "b=2",
+            "--ordering-key",
+            "k1",
+        ])
+        .expect("parse");
+        match cmd {
+            PubSubCmd::Publish {
+                attrs,
+                ordering_key,
+                ..
+            } => {
+                assert_eq!(attrs, vec!["a=1", "b=2"]);
+                assert_eq!(ordering_key.as_deref(), Some("k1"));
+            }
+            _ => panic!("expected Publish"),
+        }
+    }
+
+    #[test]
+    fn pubsub_pull_defaults_max_10_deadline_30_ack_off() {
+        // Pin: Google's documented defaults — max=10 is the recommended
+        // batch size for steady throughput; deadline=30s the ack-extend
+        // baseline; --ack off avoids silent acknowledgment of test pulls.
+        let cmd = parse_pubsub(&["pull", "subs/x"]).expect("parse");
+        match cmd {
+            PubSubCmd::Pull {
+                subscription,
+                max,
+                ack,
+                deadline,
+            } => {
+                assert_eq!(subscription, "subs/x");
+                assert_eq!(max, 10);
+                assert!(!ack);
+                assert_eq!(deadline, 30);
+            }
+            _ => panic!("expected Pull"),
+        }
+    }
+
+    #[test]
+    fn pubsub_ack_requires_subscription_and_ids_flag() {
+        // Pin: Ack without ids is a no-op call → must reject at parse.
+        use clap::error::ErrorKind::MissingRequiredArgument;
+        assert_eq!(
+            parse_pubsub(&["ack"]).unwrap_err().kind(),
+            MissingRequiredArgument
+        );
+        assert_eq!(
+            parse_pubsub(&["ack", "subs/x"]).unwrap_err().kind(),
+            MissingRequiredArgument
+        );
+        let cmd = parse_pubsub(&["ack", "subs/x", "--ids", "a,b,c"]).expect("parse");
+        match cmd {
+            PubSubCmd::Ack { subscription, ids } => {
+                assert_eq!(subscription, "subs/x");
+                assert_eq!(ids, "a,b,c");
+            }
+            _ => panic!("expected Ack"),
+        }
+    }
 }
