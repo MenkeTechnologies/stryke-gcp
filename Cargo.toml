@@ -2,7 +2,7 @@
 name = "stryke-gcp-helper"
 version = "0.1.1"
 edition = "2021"
-description = "Google Cloud bridge binary for the stryke `gcp` package."
+description = "Google Cloud bridge binary for the stryke `gcp` package"
 authors = ["MenkeTechnologies"]
 license = "MIT"
 repository = "https://github.com/MenkeTechnologies/stryke-gcp"
