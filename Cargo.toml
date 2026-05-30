@@ -6,6 +6,7 @@ description = "Google Cloud bridge binary for the stryke `gcp` package."
 authors = ["MenkeTechnologies"]
 license = "MIT"
 repository = "https://github.com/MenkeTechnologies/stryke-gcp"
+homepage = "https://menketechnologies.github.io/stryke-gcp/"
 publish = false
 
 [[bin]]
