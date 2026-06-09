@@ -1,32 +1,31 @@
 [package]
-name = "stryke-gcp-helper"
-version = "0.1.1"
+name = "stryke-gcp"
+version = "0.2.0"
 edition = "2021"
-description = "Google Cloud bridge binary for the stryke `gcp` package"
+description = "Google Cloud cdylib for stryke. Dlopened in-process with a persistent tokio runtime + reqwest client + auth TokenSource. v0.2.0 covers GCS + Pub/Sub — focused subset of the v1 helper."
 authors = ["MenkeTechnologies"]
 license = "MIT"
 repository = "https://github.com/MenkeTechnologies/stryke-gcp"
 homepage = "https://menketechnologies.github.io/stryke-gcp/"
 publish = false
 
-[[bin]]
-name = "stryke-gcp-helper"
-path = "src/main.rs"
+[lib]
+name = "stryke_gcp"
+crate-type = ["cdylib"]
+path = "src/lib.rs"
 
 [dependencies]
 google-cloud-auth = "1"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "json", "stream"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-std", "io-util", "fs"] }
-clap = { version = "4", default-features = false, features = [
-    "std", "derive", "help", "usage", "error-context", "env",
-] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 anyhow = "1"
 base64 = "0.22"
-http = "1"
 urlencoding = "2"
-futures-util = "0.3"
+once_cell = "1"
+parking_lot = "0.12"
+http = "1"
 
 [profile.release]
 opt-level = 3

@@ -1,18 +1,15 @@
 # t/test_gcp.stk — connectivity tests against a live GCP project.
 #
-# Most tests just exercise plumbing — they hit GCP minimally so the suite
-# stays cheap. Skips cleanly when:
-#   * the helper isn't built
-#   * Application Default Credentials aren't reachable
+# Requires the cdylib to be loaded. Install once with `s pkg install -g .`
+# from the package root so stryke's FFI bridge dlopens
+# lib/libstryke_gcp.{dylib,so} on `use GCP`.
 #
 # Set $STRYKE_GCP_TEST_BUCKET / $STRYKE_GCP_TEST_TOPIC / $STRYKE_GCP_TEST_SUB
 # to opt into the per-service round-trips that need writable resources.
 
-require "./lib/GCP.stk"
-require "./lib/Storage.stk"
-require "./lib/PubSub.stk"
+use GCP
 
-my $have_helper = eval { GCP::helper_path(); 1 }
+my $have_cdylib = eval { GCP::version(); 1 }
 unless ($have_helper) {
     p "1..0 # SKIP helper not built — run `cargo build --release` first"
     exit 0

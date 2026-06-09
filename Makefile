@@ -6,10 +6,10 @@ all: release
 help:
 	@printf '%s\n' \
 	  'targets:' \
-	  '  make release   - cargo build --release  (default; produces target/release/stryke-gcp-helper)' \
+	  '  make release   - cargo build --release  (default; produces target/release/libstryke_gcp.{dylib,so})' \
 	  '  make debug     - cargo build' \
 	  '  make test      - cargo test then `s test t/`  (skips without GCP creds)' \
-	  '  make install   - `s pkg install -g .` (registers gcp/gcp-build CLI launchers)' \
+	  '  make install   - `s pkg install -g .` (cdylib lands in ~/.stryke/store/gcp@<ver>/)' \
 	  '  make clean     - cargo clean'
 
 release:

@@ -1,152 +1,112 @@
-# lib/GCP.stk — Google Cloud client plumbing for stryke.
+# lib/GCP.stk — Google Cloud client for stryke (`use GCP`).
 #
-# Wraps the `stryke-gcp-helper` Rust binary (REST-based, ADC-authed) and
-# parses its JSON / NDJSON output. Per-service modules (AWS-style):
-#   use AWS::S3-style                 use GCP::Storage
-#                                     use GCP::PubSub
+# Thin wrapper around the `stryke-gcp` cdylib's `gcp__*` exports.
+# The cdylib is dlopened in-process on first `use GCP` (see stryke's
+# `pkg/commands.rs::try_load_ffi_for`) and registers each export as a
+# stryke-callable function via `rust_ffi::load_cdylib`.
 #
-# Auth uses Application Default Credentials — same chain as the `gcloud`
-# CLI: `$GOOGLE_APPLICATION_CREDENTIALS` file, `gcloud auth
-# application-default login`, or the metadata server on GCE / Cloud Run.
+# Replaces the v1 helper-binary model (fork(2) + exec(2) + fresh ADC
+# discovery + auth token fetch per call). The cdylib holds one shared
+# tokio runtime + reqwest client + credentials handle for the life of
+# the process.
 #
-# Internal helpers pass `$o` as a hashref rather than flattening `%opts`
-# (stryke %opts-reslurp drops opts across required-file fn boundaries).
+# v0.2.0 surface: GCS (list_buckets, list_objects, get/put/delete_object)
+# + Pub/Sub (publish, pull, ack) + identity. The v1 helper's BigQuery and
+# broader op set can be added incrementally.
 
 package GCP
 
-our $HELPER
+# ── error dispatch ────────────────────────────────────────────────────
 
-fn GCP::pkg_root {
-    my @parts = split "/", __FILE__
-    pop @parts
-    pop @parts
-    my $root = join "/", @parts
-    $root ne "" ? $root : "."
-}
-
-fn GCP::helper_path {
-    return $GCP::HELPER if defined $GCP::HELPER && -x $GCP::HELPER
-
-    if (exists $ENV{STRYKE_GCP_HELPER} && $ENV{STRYKE_GCP_HELPER} ne "") {
-        my $p = $ENV{STRYKE_GCP_HELPER}
-        die "stryke-gcp: STRYKE_GCP_HELPER=$p is not an executable file" unless -x $p
-        $GCP::HELPER = $p
-        return $p
+fn GCP::_decode ($name, $json) {
+    my $o = from_json $json
+    if (ref $o eq "HASH" && exists $o->{error}) {
+        die "GCP::$name: $o->{error}"
     }
-
-    my $root = GCP::pkg_root()
-    for my $cand (
-        "$root/target/release/stryke-gcp-helper",
-        "$root/target/debug/stryke-gcp-helper",
-        "$root/bin/stryke-gcp-helper",
-    ) {
-        if (-x $cand) {
-            $GCP::HELPER = $cand
-            return $cand
-        }
-    }
-
-    my $which = qx{command -v stryke-gcp-helper 2>/dev/null}
-    chomp $which
-    if ($which ne "" && -x $which) {
-        $GCP::HELPER = $which
-        return $which
-    }
-
-    die "stryke-gcp: helper binary not found.\n" .
-        "  Build it once with:  cd $root && cargo build --release\n" .
-        "  Or set STRYKE_GCP_HELPER=/path/to/stryke-gcp-helper\n"
+    $o
 }
 
-fn GCP::ensure_built {
-    my $root = GCP::pkg_root()
-    for my $cand ("$root/target/release/stryke-gcp-helper",
-                  "$root/target/debug/stryke-gcp-helper") {
-        return $cand if -x $cand
-    }
-    return GCP::helper_path() if exists $ENV{STRYKE_GCP_HELPER}
-
-    p "stryke-gcp: building helper (cargo build --release)..."
-    my $rc = system "cd " . GCP::_shq($root) . " && cargo build --release"
-    die "stryke-gcp: cargo build failed (rc=$rc)" if $rc != 0
-    GCP::helper_path()
+fn GCP::_req ($extra, $opts) {
+    my %r = %$extra
+    $r{project} = $opts->{project} if exists $opts->{project} && defined $opts->{project}
+    \%r
 }
 
-fn GCP::_shq ($s) {
-    my $t = $s
-    $t =~ s/'/'\\''/g
-    "'$t'"
-}
-
-# Helper + global flags. $o hashref.
-fn GCP::_conn_argv ($o) {
-    my @argv = (GCP::_shq(GCP::helper_path()))
-    push @argv, "--project", GCP::_shq($o->{project}) if defined $o->{project}
-    @argv
-}
-
-fn GCP::_drain_ndjson ($fh) {
-    my @rows
-    while (my $line = <$fh>) {
-        chomp $line
-        next if $line eq ""
-        push @rows, from_json $line
-    }
-    @rows
-}
-
-fn GCP::_run_ndjson ($argv) {
-    my $cmd = join " ", @$argv
-    if ($ENV{STRYKE_GCP_DEBUG}) {
-        warn "DEBUG gcp cmd: $cmd\n"
-    }
-    open my $fh, "-|", $cmd or die "stryke-gcp: spawn failed: $!"
-    my @rows = GCP::_drain_ndjson $fh
-    close $fh or die "stryke-gcp: helper exited ($?)"
-    @rows
-}
-
-fn GCP::_run_json ($argv) {
-    my $cmd = join " ", @$argv
-    if ($ENV{STRYKE_GCP_DEBUG}) {
-        warn "DEBUG gcp cmd: $cmd\n"
-    }
-    my $out = qx{$cmd}
-    die "stryke-gcp: helper exited ($?)" if $? != 0
-    from_json $out
-}
-
-fn GCP::_run_raw ($argv) {
-    my $cmd = join " ", @$argv
-    if ($ENV{STRYKE_GCP_DEBUG}) {
-        warn "DEBUG gcp cmd: $cmd\n"
-    }
-    my $out = qx{$cmd}
-    die "stryke-gcp: helper exited ($?)" if $? != 0
-    $out
-}
+# ── version + identity ───────────────────────────────────────────────
 
 fn GCP::version {
-    my $bin = GCP::_shq(GCP::helper_path())
-    my $v = qx{$bin --version 2>&1}
-    chomp $v
-    $v
+    GCP::_decode("pkg_version", gcp__pkg_version("{}"))->{version}
 }
 
-# Returns truthy if ADC creds are reachable.
+fn GCP::identity (%opts) {
+    GCP::_decode("identity",
+        gcp__identity(to_json(GCP::_req({}, \%opts))))
+}
+
 fn GCP::ping (%opts) {
-    my @argv = GCP::_conn_argv(\%opts)
-    push @argv, "ping"
-    my $cmd = join " ", @argv
-    my $out = qx{$cmd 2>/dev/null}
-    $? == 0 && $out =~ /\"ok\":\s*true/
+    eval { GCP::identity(%opts); 1 } ? 1 : 0
 }
 
-# Identity / credentials introspection.
-fn GCP::auth (%opts) {
-    my @argv = GCP::_conn_argv(\%opts)
-    push @argv, "auth"
-    GCP::_run_json(\@argv)
+# ── GCS ──────────────────────────────────────────────────────────────
+
+fn GCP::gcs_list_buckets (%opts) {
+    my $o = GCP::_decode("gcs_list_buckets",
+        gcp__gcs_list_buckets(to_json(GCP::_req({}, \%opts))))
+    @{ $o->{buckets} }
+}
+
+fn GCP::gcs_list_objects ($bucket, %opts) {
+    my $r = GCP::_req({ bucket => $bucket, prefix => $opts{prefix} }, \%opts)
+    my $o = GCP::_decode("gcs_list_objects", gcp__gcs_list_objects(to_json($r)))
+    @{ $o->{objects} }
+}
+
+fn GCP::gcs_get_object ($bucket, $key, %opts) {
+    my $r = GCP::_req({ bucket => $bucket, key => $key }, \%opts)
+    GCP::_decode("gcs_get_object", gcp__gcs_get_object(to_json($r)))->{body}
+}
+
+fn GCP::gcs_put_object ($bucket, $key, $body, %opts) {
+    my $r = GCP::_req(
+        { bucket => $bucket, key => $key, body => $body,
+          content_type => $opts{content_type} },
+        \%opts
+    )
+    GCP::_decode("gcs_put_object", gcp__gcs_put_object(to_json($r)))
+}
+
+fn GCP::gcs_delete_object ($bucket, $key, %opts) {
+    my $r = GCP::_req({ bucket => $bucket, key => $key }, \%opts)
+    GCP::_decode("gcs_delete_object", gcp__gcs_delete_object(to_json($r)))->{deleted} ? 1 : 0
+}
+
+# ── Pub/Sub ──────────────────────────────────────────────────────────
+
+fn GCP::pubsub_publish ($topic, $data, %opts) {
+    my $r = GCP::_req(
+        { topic => $topic, data => $data, attributes => ($opts{attributes} // {}) },
+        \%opts
+    )
+    my $o = GCP::_decode("pubsub_publish", gcp__pubsub_publish(to_json($r)))
+    @{ $o->{message_ids} }
+}
+
+fn GCP::pubsub_pull ($subscription, %opts) {
+    my $r = GCP::_req(
+        { subscription => $subscription, max => ($opts{max} // 1) },
+        \%opts
+    )
+    my $o = GCP::_decode("pubsub_pull", gcp__pubsub_pull(to_json($r)))
+    @{ $o->{messages} }
+}
+
+fn GCP::pubsub_ack ($subscription, $ack_ids, %opts) {
+    my $list = ref($ack_ids) eq "ARRAY" ? $ack_ids : [$ack_ids]
+    my $r = GCP::_req(
+        { subscription => $subscription, ack_ids => $list },
+        \%opts
+    )
+    GCP::_decode("pubsub_ack", gcp__pubsub_ack(to_json($r)))->{acked}
 }
 
 1

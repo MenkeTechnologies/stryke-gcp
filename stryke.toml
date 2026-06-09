@@ -1,15 +1,27 @@
 [package]
 name = "gcp"
-version = "0.1.0"
-description = "Google Cloud client (GCS, BigQuery, Pub/Sub) for stryke. Opt-in package tier; keeps the stryke core binary slim."
+version = "0.2.0"
+description = "Google Cloud client (GCS + Pub/Sub) for stryke. cdylib loaded in-process — persistent tokio runtime + reqwest client + ADC credentials cache. v0.2.0 focused subset."
 authors = ["MenkeTechnologies"]
 license = "MIT"
 repository = "https://github.com/MenkeTechnologies/stryke-gcp"
 edition = "2026"
 
-[bin]
-gcp = "bin/gcp.stk"
-gcp-build = "bin/gcp-build.stk"
+[ffi]
+lib-name = "stryke_gcp"
+namespace = "GCP"
+exports = [
+    "gcp__pkg_version",
+    "gcp__identity",
+    "gcp__gcs_list_buckets",
+    "gcp__gcs_list_objects",
+    "gcp__gcs_get_object",
+    "gcp__gcs_put_object",
+    "gcp__gcs_delete_object",
+    "gcp__pubsub_publish",
+    "gcp__pubsub_pull",
+    "gcp__pubsub_ack",
+]
 
 [scripts]
 build = "cargo build --release"

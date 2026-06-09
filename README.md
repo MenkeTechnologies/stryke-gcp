@@ -66,10 +66,18 @@ proper SDK crates currently impose.
 
 ## [0x02] Install
 
+From a release (no rustc on the consumer machine):
+
+```sh
+s pkg install -g github.com/MenkeTechnologies/stryke-gcp
+```
+
+From a local checkout:
+
 ```sh
 cd ~/projects/stryke-gcp
-cargo build --release            # produces target/release/stryke-gcp-helper
-s pkg install -g .               # installs `gcp` and `gcp-build` CLIs
+cargo build --release            # produces target/release/libstryke_gcp.{dylib,so}
+s pkg install -g .               # cdylib lands in ~/.stryke/store/gcp@<version>/
 ```
 
 Or:
@@ -77,6 +85,12 @@ Or:
 ```sh
 make install
 ```
+
+The cdylib is dlopened in-process on first `use GCP`. A shared tokio
+runtime + `reqwest::Client` + cached ADC credentials are held in
+`OnceCell` — no fork-per-call, no re-running of ADC discovery /
+metadata-server / WIF / SA-file lookup. v0.2.0 covers GCS + Pub/Sub;
+BigQuery and the v1 helper's broader op set can be added incrementally.
 
 ## [0x03] Auth
 
