@@ -1,55 +1,65 @@
 ## lib/PubSub.stk — `use GCP::PubSub`
 ##
-## Topic / subscription names can be bare (e.g. "my-topic") or fully
-## qualified ("projects/PROJECT/topics/my-topic"). Bare names are expanded
-## against $opts{project} or $ENV{GOOGLE_CLOUD_PROJECT}.
+## Wraps `GCP::pubsub_*` from the v0.2.0 cdylib. Topic / subscription
+## names can be bare (e.g. "my-topic") or fully qualified
+## ("projects/PROJECT/topics/my-topic") — the latter form is stripped to
+## the bare name before calling the cdylib, since the cdylib resolves
+## the project from `project` opt / $GOOGLE_CLOUD_PROJECT itself.
 
 package GCP::PubSub
 
 use GCP
 
-## Publish a single message. Attributes is an optional hashref.
+## Internal: strip `projects/PROJECT/topics/` or `subscriptions/` prefix.
+fn GCP::PubSub::_bare ($name) {
+    $name =~ s{^projects/[^/]+/(topics|subscriptions)/}{}
+    $name
+}
+
+## Publish a single message. Returns an array of message IDs (usually one).
+## `attrs => \%attrs` is supported. `ordering_key` is deferred in v0.2.0.
 fn GCP::PubSub::publish ($topic, $data, %opts) {
-    my @argv = GCP::_conn_argv(\%opts)
-    push @argv, "pubsub", "publish", GCP::_shq($topic), "--data", GCP::_shq($data)
-    if (defined $opts{attrs} && ref($opts{attrs}) eq "HASH") {
-        for my $k (sort keys %{ $opts{attrs} }) {
-            my $v = $opts{attrs}{$k}
-            push @argv, "--attr", GCP::_shq("$k=$v")
-        }
+    if (defined $opts{ordering_key}) {
+        die "GCP::PubSub::publish: ordering_key deferred in v0.2.0 cdylib — extend gcp__pubsub_publish"
     }
-    push @argv, "--ordering-key", GCP::_shq($opts{ordering_key}) if defined $opts{ordering_key}
-    GCP::_run_json(\@argv)
+    my $bare = GCP::PubSub::_bare($topic)
+    my %args = %opts
+    if (defined $opts{attrs}) {
+        $args{attributes} = $opts{attrs}
+    }
+    GCP::pubsub_publish($bare, $data, %args)
 }
 
 ## Pull. Pass `ack => 1` to auto-acknowledge received messages.
+## Returns array of message hashrefs ({ ack_id, message_id, data, attributes }).
 fn GCP::PubSub::pull ($subscription, %opts) {
-    my @argv = GCP::_conn_argv(\%opts)
-    push @argv, "pubsub", "pull", GCP::_shq($subscription)
-    push @argv, "--max",      GCP::_shq($opts{max})      if defined $opts{max}
-    push @argv, "--deadline", GCP::_shq($opts{deadline}) if defined $opts{deadline}
-    push @argv, "--ack" if $opts{ack}
-    GCP::_run_ndjson(\@argv)
+    if (defined $opts{deadline}) {
+        die "GCP::PubSub::pull: deadline deferred in v0.2.0 cdylib — extend gcp__pubsub_pull"
+    }
+    my $bare = GCP::PubSub::_bare($subscription)
+    my @msgs = GCP::pubsub_pull($bare, %opts)
+    if ($opts{ack} && @msgs) {
+        my @ids = grep { defined } map { $_->{ack_id} } @msgs
+        GCP::pubsub_ack($bare, \@ids, %opts) if @ids
+    }
+    @msgs
 }
 
-## Acknowledge one or more ack IDs.
+## Acknowledge one or more ack IDs. `$ids` is an arrayref or scalar.
 fn GCP::PubSub::ack ($subscription, $ids, %opts) {
-    my $list = ref($ids) eq "ARRAY" ? join(",", @$ids) : $ids
-    my @argv = GCP::_conn_argv(\%opts)
-    push @argv, "pubsub", "ack", GCP::_shq($subscription), "--ids", GCP::_shq($list)
-    GCP::_run_json(\@argv)
+    my $list = ref($ids) eq "ARRAY" ? $ids : [$ids]
+    my $bare = GCP::PubSub::_bare($subscription)
+    GCP::pubsub_ack($bare, $list, %opts)
 }
 
+## List topics in the configured project. Deferred in v0.2.0.
 fn GCP::PubSub::topics (%opts) {
-    my @argv = GCP::_conn_argv(\%opts)
-    push @argv, "pubsub", "topics"
-    map { $_->{name} } GCP::_run_ndjson(\@argv)
+    die "GCP::PubSub::topics: deferred in v0.2.0 cdylib — add gcp__pubsub_list_topics to the export list"
 }
 
+## List subscriptions in the configured project. Deferred in v0.2.0.
 fn GCP::PubSub::subs (%opts) {
-    my @argv = GCP::_conn_argv(\%opts)
-    push @argv, "pubsub", "subs"
-    GCP::_run_ndjson(\@argv)
+    die "GCP::PubSub::subs: deferred in v0.2.0 cdylib — add gcp__pubsub_list_subscriptions to the export list"
 }
 
 ## Convenience: pull → callback → ack each message. Returns count handled.
