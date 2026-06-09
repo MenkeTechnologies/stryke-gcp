@@ -1,14 +1,14 @@
-# lib/PubSub.stk — `use GCP::PubSub`
-#
-# Topic / subscription names can be bare (e.g. "my-topic") or fully
-# qualified ("projects/PROJECT/topics/my-topic"). Bare names are expanded
-# against $opts{project} or $ENV{GOOGLE_CLOUD_PROJECT}.
+## lib/PubSub.stk — `use GCP::PubSub`
+##
+## Topic / subscription names can be bare (e.g. "my-topic") or fully
+## qualified ("projects/PROJECT/topics/my-topic"). Bare names are expanded
+## against $opts{project} or $ENV{GOOGLE_CLOUD_PROJECT}.
 
 package GCP::PubSub
 
 use GCP
 
-# Publish a single message. Attributes is an optional hashref.
+## Publish a single message. Attributes is an optional hashref.
 fn GCP::PubSub::publish ($topic, $data, %opts) {
     my @argv = GCP::_conn_argv(\%opts)
     push @argv, "pubsub", "publish", GCP::_shq($topic), "--data", GCP::_shq($data)
@@ -22,7 +22,7 @@ fn GCP::PubSub::publish ($topic, $data, %opts) {
     GCP::_run_json(\@argv)
 }
 
-# Pull. Pass `ack => 1` to auto-acknowledge received messages.
+## Pull. Pass `ack => 1` to auto-acknowledge received messages.
 fn GCP::PubSub::pull ($subscription, %opts) {
     my @argv = GCP::_conn_argv(\%opts)
     push @argv, "pubsub", "pull", GCP::_shq($subscription)
@@ -32,7 +32,7 @@ fn GCP::PubSub::pull ($subscription, %opts) {
     GCP::_run_ndjson(\@argv)
 }
 
-# Acknowledge one or more ack IDs.
+## Acknowledge one or more ack IDs.
 fn GCP::PubSub::ack ($subscription, $ids, %opts) {
     my $list = ref($ids) eq "ARRAY" ? join(",", @$ids) : $ids
     my @argv = GCP::_conn_argv(\%opts)
@@ -52,7 +52,7 @@ fn GCP::PubSub::subs (%opts) {
     GCP::_run_ndjson(\@argv)
 }
 
-# Convenience: pull → callback → ack each message. Returns count handled.
+## Convenience: pull → callback → ack each message. Returns count handled.
 fn GCP::PubSub::pump ($subscription, %opts) {
     die "GCP::PubSub::pump: callback => sub { … } is required" unless defined $opts{callback}
     my $cb = $opts{callback}

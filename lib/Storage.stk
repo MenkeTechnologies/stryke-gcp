@@ -1,15 +1,15 @@
-# lib/Storage.stk — `use GCP::Storage`
-#
-# GCS via the JSON API. Object URIs use the standard `gs://bucket/key`
-# form.
+## lib/Storage.stk — `use GCP::Storage`
+##
+## GCS via the JSON API. Object URIs use the standard `gs://bucket/key`
+## form.
 
 package GCP::Storage
 
 use GCP
 
-# Returns array of entries:
-#   { type=>"object", key, size, content_type, md5, etag, updated, storage_class, generation }
-#   { type=>"prefix", key }
+## Returns array of entries:
+##   { type=>"object", key, size, content_type, md5, etag, updated, storage_class, generation }
+##   { type=>"prefix", key }
 fn GCP::Storage::ls ($uri, %opts) {
     my @argv = GCP::_conn_argv(\%opts)
     push @argv, "gcs", "ls", GCP::_shq($uri)
@@ -19,8 +19,8 @@ fn GCP::Storage::ls ($uri, %opts) {
     GCP::_run_ndjson(\@argv)
 }
 
-# Returns the object's body as a scalar string. Pass `output => "PATH"`
-# to write to a file and get the path back.
+## Returns the object's body as a scalar string. Pass `output => "PATH"`
+## to write to a file and get the path back.
 fn GCP::Storage::get ($uri, %opts) {
     my @argv = GCP::_conn_argv(\%opts)
     push @argv, "gcs", "get", GCP::_shq($uri)
@@ -34,7 +34,7 @@ fn GCP::Storage::get ($uri, %opts) {
     GCP::_run_raw(\@argv)
 }
 
-# Upload a scalar or local file. Pass `data => $bytes` OR `input => "/path"`.
+## Upload a scalar or local file. Pass `data => $bytes` OR `input => "/path"`.
 fn GCP::Storage::put ($uri, %opts) {
     my @argv = GCP::_conn_argv(\%opts)
     push @argv, "gcs", "put", GCP::_shq($uri)
@@ -81,7 +81,7 @@ fn GCP::Storage::rm ($uri, %opts) {
     GCP::_run_json(\@argv)
 }
 
-# Buckets in the configured project.
+## Buckets in the configured project.
 fn GCP::Storage::buckets (%opts) {
     my @argv = GCP::_conn_argv(\%opts)
     push @argv, "gcs", "buckets"
