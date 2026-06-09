@@ -18,6 +18,7 @@ package GCP
 
 # ── error dispatch ────────────────────────────────────────────────────
 
+## Decode the cdylib's JSON return; die on `{error}` payload.
 fn GCP::_decode ($name, $json) {
     my $o = from_json $json
     if (ref $o eq "HASH" && exists $o->{error}) {
@@ -26,6 +27,7 @@ fn GCP::_decode ($name, $json) {
     $o
 }
 
+## Build the FFI request hash by merging the caller's connection opts.
 fn GCP::_req ($extra, $opts) {
     my %r = %$extra
     $r{project} = $opts->{project} if exists $opts->{project} && defined $opts->{project}
@@ -34,38 +36,45 @@ fn GCP::_req ($extra, $opts) {
 
 # ── version + identity ───────────────────────────────────────────────
 
+## Return the package version string.
 fn GCP::version {
     GCP::_decode("pkg_version", gcp__pkg_version("{}"))->{version}
 }
 
+## Probe credentials — returns { ok, project, credentials_source }.
 fn GCP::identity (%opts) {
     GCP::_decode("identity",
         gcp__identity(to_json(GCP::_req({}, \%opts))))
 }
 
+## Connectivity probe — returns 1 on success, 0 on failure.
 fn GCP::ping (%opts) {
     eval { GCP::identity(%opts); 1 } ? 1 : 0
 }
 
 # ── GCS ──────────────────────────────────────────────────────────────
 
+## List GCS buckets in the active project.
 fn GCP::gcs_list_buckets (%opts) {
     my $o = GCP::_decode("gcs_list_buckets",
         gcp__gcs_list_buckets(to_json(GCP::_req({}, \%opts))))
     @{ $o->{buckets} }
 }
 
+## List GCS objects under $bucket with `prefix => "..."`.
 fn GCP::gcs_list_objects ($bucket, %opts) {
     my $r = GCP::_req({ bucket => $bucket, prefix => $opts{prefix} }, \%opts)
     my $o = GCP::_decode("gcs_list_objects", gcp__gcs_list_objects(to_json($r)))
     @{ $o->{objects} }
 }
 
+## Download object body as scalar (string or `base64:...` for binary).
 fn GCP::gcs_get_object ($bucket, $key, %opts) {
     my $r = GCP::_req({ bucket => $bucket, key => $key }, \%opts)
     GCP::_decode("gcs_get_object", gcp__gcs_get_object(to_json($r)))->{body}
 }
 
+## Upload $body to gs://$bucket/$key.
 fn GCP::gcs_put_object ($bucket, $key, $body, %opts) {
     my $r = GCP::_req(
         { bucket => $bucket, key => $key, body => $body,
@@ -75,6 +84,7 @@ fn GCP::gcs_put_object ($bucket, $key, $body, %opts) {
     GCP::_decode("gcs_put_object", gcp__gcs_put_object(to_json($r)))
 }
 
+## Delete gs://$bucket/$key. Returns 1 on success.
 fn GCP::gcs_delete_object ($bucket, $key, %opts) {
     my $r = GCP::_req({ bucket => $bucket, key => $key }, \%opts)
     GCP::_decode("gcs_delete_object", gcp__gcs_delete_object(to_json($r)))->{deleted} ? 1 : 0
@@ -82,6 +92,7 @@ fn GCP::gcs_delete_object ($bucket, $key, %opts) {
 
 # ── Pub/Sub ──────────────────────────────────────────────────────────
 
+## Publish to topic. Returns array of message IDs.
 fn GCP::pubsub_publish ($topic, $data, %opts) {
     my $r = GCP::_req(
         { topic => $topic, data => $data, attributes => ($opts{attributes} // {}) },
@@ -91,6 +102,7 @@ fn GCP::pubsub_publish ($topic, $data, %opts) {
     @{ $o->{message_ids} }
 }
 
+## Pull up to `max` messages from subscription.
 fn GCP::pubsub_pull ($subscription, %opts) {
     my $r = GCP::_req(
         { subscription => $subscription, max => ($opts{max} // 1) },
@@ -100,6 +112,7 @@ fn GCP::pubsub_pull ($subscription, %opts) {
     @{ $o->{messages} }
 }
 
+## Acknowledge an arrayref of ack IDs.
 fn GCP::pubsub_ack ($subscription, $ack_ids, %opts) {
     my $list = ref($ack_ids) eq "ARRAY" ? $ack_ids : [$ack_ids]
     my $r = GCP::_req(
