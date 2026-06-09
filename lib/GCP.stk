@@ -122,4 +122,3 @@ fn GCP::pubsub_ack ($subscription, $ack_ids, %opts) {
     GCP::_decode("pubsub_ack", gcp__pubsub_ack(to_json($r)))->{acked}
 }
 
-1

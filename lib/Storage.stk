@@ -71,4 +71,3 @@ fn GCP::Storage::buckets (%opts) {
     GCP::gcs_list_buckets(%opts)
 }
 
-1

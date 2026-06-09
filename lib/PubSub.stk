@@ -84,4 +84,3 @@ fn GCP::PubSub::pump ($subscription, %opts) {
     $n
 }
 
-1
