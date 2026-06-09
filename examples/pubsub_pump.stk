@@ -5,10 +5,10 @@
 
 use GCP::PubSub
 
-my $sub = $ARGV[0]
+val $sub = $ARGV[0]
 die "usage: pubsub_pump.stk SUBSCRIPTION\n" unless defined $sub
 
-my $n = GCP::PubSub::pump $sub,
+val $n = GCP::PubSub::pump $sub,
     iterations => 5,
     max        => 10,
     callback   => sub ($m) {

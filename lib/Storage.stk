@@ -16,17 +16,17 @@ fn GCP::Storage::_parse ($uri) {
 ## Returns an array of object hashrefs under the URI prefix.
 ## Each row: { name, size, content_type }.
 fn GCP::Storage::ls ($uri, %opts) {
-    my ($bucket, $prefix) = GCP::Storage::_parse($uri)
+    val ($bucket, $prefix) = GCP::Storage::_parse($uri)
     GCP::gcs_list_objects($bucket, prefix => $prefix, %opts)
 }
 
 ## Returns the object's body as a scalar string. Pass `output => "PATH"`
 ## to write to a file and get the path back.
 fn GCP::Storage::get ($uri, %opts) {
-    my ($bucket, $key) = GCP::Storage::_parse($uri)
-    my $body = GCP::gcs_get_object($bucket, $key, %opts)
+    val ($bucket, $key) = GCP::Storage::_parse($uri)
+    val $body = GCP::gcs_get_object($bucket, $key, %opts)
     if (defined $opts{output}) {
-        open my $fh, ">", $opts{output} or die "GCP::Storage::get: open $opts{output}: $!"
+        open val $fh, ">", $opts{output} or die "GCP::Storage::get: open $opts{output}: $!"
         print $fh $body
         close $fh
         return $opts{output}
@@ -37,12 +37,12 @@ fn GCP::Storage::get ($uri, %opts) {
 ## Upload a scalar or local file. Pass `data => $bytes` OR `input => "/path"`.
 ## Returns the put-object response hash.
 fn GCP::Storage::put ($uri, %opts) {
-    my ($bucket, $key) = GCP::Storage::_parse($uri)
-    my $body
+    val ($bucket, $key) = GCP::Storage::_parse($uri)
+    var $body
     if (defined $opts{data}) {
         $body = $opts{data}
     } elsif (defined $opts{input}) {
-        open my $fh, "<", $opts{input} or die "GCP::Storage::put: open $opts{input}: $!"
+        open val $fh, "<", $opts{input} or die "GCP::Storage::put: open $opts{input}: $!"
         local $/
         $body = <$fh>
         close $fh
@@ -62,7 +62,7 @@ fn GCP::Storage::head ($uri, %opts) {
 
 ## Delete an object.
 fn GCP::Storage::rm ($uri, %opts) {
-    my ($bucket, $key) = GCP::Storage::_parse($uri)
+    val ($bucket, $key) = GCP::Storage::_parse($uri)
     GCP::gcs_delete_object($bucket, $key, %opts) ? { deleted => 1 } : { deleted => 0 }
 }
 

@@ -22,8 +22,8 @@ fn GCP::PubSub::publish ($topic, $data, %opts) {
     if (defined $opts{ordering_key}) {
         die "GCP::PubSub::publish: ordering_key deferred in v0.2.0 cdylib — extend gcp__pubsub_publish"
     }
-    my $bare = GCP::PubSub::_bare($topic)
-    my %args = %opts
+    val $bare = GCP::PubSub::_bare($topic)
+    var %args = %opts
     if (defined $opts{attrs}) {
         $args{attributes} = $opts{attrs}
     }
@@ -36,10 +36,10 @@ fn GCP::PubSub::pull ($subscription, %opts) {
     if (defined $opts{deadline}) {
         die "GCP::PubSub::pull: deadline deferred in v0.2.0 cdylib — extend gcp__pubsub_pull"
     }
-    my $bare = GCP::PubSub::_bare($subscription)
-    my @msgs = GCP::pubsub_pull($bare, %opts)
+    val $bare = GCP::PubSub::_bare($subscription)
+    val @msgs = GCP::pubsub_pull($bare, %opts)
     if ($opts{ack} && @msgs) {
-        my @ids = grep { defined } map { $_->{ack_id} } @msgs
+        val @ids = grep { defined } map { $_->{ack_id} } @msgs
         GCP::pubsub_ack($bare, \@ids, %opts) if @ids
     }
     @msgs
@@ -47,8 +47,8 @@ fn GCP::PubSub::pull ($subscription, %opts) {
 
 ## Acknowledge one or more ack IDs. `$ids` is an arrayref or scalar.
 fn GCP::PubSub::ack ($subscription, $ids, %opts) {
-    my $list = ref($ids) eq "ARRAY" ? $ids : [$ids]
-    my $bare = GCP::PubSub::_bare($subscription)
+    val $list = ref($ids) eq "ARRAY" ? $ids : [$ids]
+    val $bare = GCP::PubSub::_bare($subscription)
     GCP::pubsub_ack($bare, $list, %opts)
 }
 
@@ -65,14 +65,14 @@ fn GCP::PubSub::subs (%opts) {
 ## Convenience: pull → callback → ack each message. Returns count handled.
 fn GCP::PubSub::pump ($subscription, %opts) {
     die "GCP::PubSub::pump: callback => sub { … } is required" unless defined $opts{callback}
-    my $cb = $opts{callback}
-    my $iters = $opts{iterations} // 1
-    my $n = 0
+    val $cb = $opts{callback}
+    val $iters = $opts{iterations} // 1
+    var $n = 0
     for (1 .. $iters) {
-        my @msgs = GCP::PubSub::pull($subscription, %opts)
+        val @msgs = GCP::PubSub::pull($subscription, %opts)
         last unless @msgs
-        my @acks
-        for my $m (@msgs) {
+        var @acks
+        for val $m (@msgs) {
             $cb->($m)
             push @acks, $m->{ack_id} if defined $m->{ack_id}
             $n++

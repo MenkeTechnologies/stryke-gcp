@@ -9,61 +9,61 @@
 
 use GCP
 
-my $have_cdylib = eval { GCP::version(); 1 }
+val $have_cdylib = eval { GCP::version(); 1 }
 unless ($have_helper) {
     p "1..0 # SKIP helper not built — run `cargo build --release` first"
     exit 0
 }
 
-my $have_creds = GCP::ping()
+val $have_creds = GCP::ping()
 unless ($have_creds) {
     p "1..0 # SKIP no GCP credentials reachable (gcloud auth application-default login)"
     exit 0
 }
 
-my $bucket = $ENV{STRYKE_GCP_TEST_BUCKET}
-my $topic  = $ENV{STRYKE_GCP_TEST_TOPIC}
-my $sub    = $ENV{STRYKE_GCP_TEST_SUB}
+val $bucket = $ENV{STRYKE_GCP_TEST_BUCKET}
+val $topic  = $ENV{STRYKE_GCP_TEST_TOPIC}
+val $sub    = $ENV{STRYKE_GCP_TEST_SUB}
 
-my $plan = 2
+var $plan = 2
 $plan += 4 if defined $bucket
 $plan += 2 if defined $topic && defined $sub
 p "1..$plan"
-my $i = 0
+var $i = 0
 
 # 1. auth → returns the {project, ok:true} shape.
-my $id
+var $id
 eval { $id = GCP::auth() }
 $i++
 p $@ ? "not ok $i - auth: $@" :
        ($id->{ok} ? "ok $i - auth (project=$id->{project})" : "not ok $i - auth.ok=false")
 
 # 2. buckets list (read-only, low blast radius)
-my @bs
+var @bs
 eval { @bs = GCP::Storage::buckets() }
 $i++
 p $@ ? "not ok $i - buckets: $@" : "ok $i - buckets (saw " . len(@bs) . ")"
 
 # ---- GCS round-trip ----
 if (defined $bucket) {
-    my $key = "stryke-gcp-test/$$/" . time() . ".txt"
-    my $uri = "gs://$bucket/$key"
-    my $body = "hello-from-stryke-gcp-$$"
+    val $key = "stryke-gcp-test/$$/" . time() . ".txt"
+    val $uri = "gs://$bucket/$key"
+    var $body = "hello-from-stryke-gcp-$$"
 
-    my $r
+    var $r
     eval { $r = GCP::Storage::put($uri, data => $body) }
     $i++
     p $@ ? "not ok $i - gcs put: $@" :
            (defined $r->{key} ? "ok $i - gcs put" : "not ok $i - gcs put bad shape")
 
-    my $got
+    var $got
     eval { $got = GCP::Storage::get($uri) }
     $i++
     p $@ ? "not ok $i - gcs get: $@" :
            ($got eq $body ? "ok $i - gcs get round-trip" :
             "not ok $i - gcs get returned " . len($got) . " bytes, want " . len($body))
 
-    my $head
+    var $head
     eval { $head = GCP::Storage::head($uri) }
     $i++
     p $@ ? "not ok $i - gcs head: $@" :
@@ -77,9 +77,9 @@ if (defined $bucket) {
 
 # ---- Pub/Sub round-trip (needs $TOPIC and $SUB both set and SUB pointing at TOPIC) ----
 if (defined $topic && defined $sub) {
-    my $body = "msg-from-stryke-gcp-$$-" . time()
+    val $body = "msg-from-stryke-gcp-$$-" . time()
 
-    my $sent
+    var $sent
     eval { $sent = GCP::PubSub::publish($topic, $body) }
     $i++
     p $@ ? "not ok $i - pubsub publish: $@" :
@@ -87,14 +87,14 @@ if (defined $topic && defined $sub) {
             "not ok $i - pubsub publish wrong shape")
 
     sleep 2
-    my @msgs
+    var @msgs
     eval { @msgs = GCP::PubSub::pull($sub, max => 10, ack => 1) }
     $i++
     if ($@) {
         p "not ok $i - pubsub pull: $@"
     } else {
-        my $found = 0
-        for my $m (@msgs) {
+        var $found = 0
+        for val $m (@msgs) {
             $found = 1 if $m->{data} eq $body
         }
         p ($found ? "ok $i - pubsub pull (got our message)"

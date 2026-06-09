@@ -4,14 +4,14 @@
 
 use GCP::Storage
 
-my $uri = $ARGV[0]
+val $uri = $ARGV[0]
 die "usage: gcs_put_get.stk gs://bucket/key\n" unless defined $uri
 
-my $body = "hello from stryke at " . time()
-my $r = GCP::Storage::put $uri, data => $body
+val $body = "hello from stryke at " . time()
+val $r = GCP::Storage::put $uri, data => $body
 p "put: " . to_json($r)
 
-my $back = GCP::Storage::get $uri
+val $back = GCP::Storage::get $uri
 p "get: $back"
 
 p "match: " . ($back eq $body ? "yes" : "no")

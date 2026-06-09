@@ -4,11 +4,11 @@
 
 use GCP::Storage
 
-my $uri = $ARGV[0]
+val $uri = $ARGV[0]
 die "usage: gcs_browse.stk gs://bucket/prefix\n" unless defined $uri
 
-my @entries = GCP::Storage::ls $uri, delimiter => "/"
-for my $e (@entries) {
+val @entries = GCP::Storage::ls $uri, delimiter => "/"
+for val $e (@entries) {
     if ($e->{type} eq "prefix") {
         p "  [dir] $e->{key}"
     } else {
