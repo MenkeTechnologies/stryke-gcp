@@ -2,7 +2,7 @@
 name = "stryke-gcp"
 version = "0.2.0"
 edition = "2021"
-description = "Google Cloud cdylib for stryke. Dlopened in-process with a persistent tokio runtime + reqwest client + auth TokenSource. v0.2.0 covers GCS + Pub/Sub — focused subset of the v1 helper."
+description = "Google Cloud cdylib for the stryke `gcp` package — dlopened in-process via stryke's FFI bridge."
 authors = ["MenkeTechnologies"]
 license = "MIT"
 repository = "https://github.com/MenkeTechnologies/stryke-gcp"
