@@ -1,5 +1,5 @@
 [package]
-name = "gcp"
+name = "stryke-gcp"
 version = "0.2.0"
 description = "Google Cloud client (GCS + Pub/Sub) for stryke. cdylib loaded in-process — persistent tokio runtime + reqwest client + ADC credentials cache. v0.2.0 focused subset."
 authors = ["MenkeTechnologies"]
