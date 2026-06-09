@@ -1,103 +1,57 @@
-# t/test_gcp.stk — connectivity tests against a live GCP project.
-#
-# Requires the cdylib to be loaded. Install once with `s pkg install -g .`
-# from the package root so stryke's FFI bridge dlopens
-# lib/libstryke_gcp.{dylib,so} on `use GCP`.
-#
-# Set $STRYKE_GCP_TEST_BUCKET / $STRYKE_GCP_TEST_TOPIC / $STRYKE_GCP_TEST_SUB
-# to opt into the per-service round-trips that need writable resources.
+## t/test_gcp.stk — assertion tests for the stryke `GCP` package.
+##
+## Uses stryke's native test framework (`assert_*` + `test_run`).
+## Requires the cdylib to be loaded — install once with `s pkg install -g .`
+## so stryke's FFI bridge dlopens `lib/libstryke_gcp.{dylib,so}` on `use GCP`.
+## Service-dependent assertions fire only when GCP credentials are reachable
+## (`gcloud auth application-default login`) and the relevant
+## $STRYKE_GCP_TEST_BUCKET / _TOPIC / _SUB env var is set.
 
 use GCP
 
-val $have_cdylib = eval { GCP::version(); 1 }
-unless ($have_helper) {
-    p "1..0 # SKIP helper not built — run `cargo build --release` first"
-    exit 0
-}
+# ── permission-free: cdylib reachable ───────────────────────────────
+val $version = GCP::version()
+assert_ok $version, "GCP::version returns truthy (cdylib loaded)"
 
-val $have_creds = GCP::ping()
-unless ($have_creds) {
-    p "1..0 # SKIP no GCP credentials reachable (gcloud auth application-default login)"
-    exit 0
-}
+# ── credentials probe ───────────────────────────────────────────────
+val $alive = eval { GCP::ping() }
 
-val $bucket = $ENV{STRYKE_GCP_TEST_BUCKET}
-val $topic  = $ENV{STRYKE_GCP_TEST_TOPIC}
-val $sub    = $ENV{STRYKE_GCP_TEST_SUB}
+if ($alive) {
+    val $id = GCP::auth()
+    assert_ok $id->{ok}, "auth returns ok=true"
 
-var $plan = 2
-$plan += 4 if defined $bucket
-$plan += 2 if defined $topic && defined $sub
-p "1..$plan"
-var $i = 0
+    # buckets list (read-only, low blast radius)
+    val @bs = GCP::Storage::buckets()
+    assert_ok 1, "Storage::buckets returns without dying (saw " . scalar(@bs) . ")"
 
-# 1. auth → returns the {project, ok:true} shape.
-var $id
-eval { $id = GCP::auth() }
-$i++
-p $@ ? "not ok $i - auth: $@" :
-       ($id->{ok} ? "ok $i - auth (project=$id->{project})" : "not ok $i - auth.ok=false")
+    # ── GCS round-trip ───────────────────────────────────────────
+    val $bucket = $ENV{STRYKE_GCP_TEST_BUCKET}
+    if (defined $bucket) {
+        val $key = "stryke-gcp-test/$$/" . time() . ".txt"
+        val $uri = "gs://$bucket/$key"
+        val $body = "hello-from-stryke-gcp-$$"
 
-# 2. buckets list (read-only, low blast radius)
-var @bs
-eval { @bs = GCP::Storage::buckets() }
-$i++
-p $@ ? "not ok $i - buckets: $@" : "ok $i - buckets (saw " . len(@bs) . ")"
+        val $put = GCP::Storage::put($uri, data => $body)
+        assert_ok defined $put->{key}, "gcs put returns key"
+        assert_eq GCP::Storage::get($uri), $body, "gcs get round-trip"
+        assert_eq GCP::Storage::head($uri)->{size}, len($body), "gcs head size"
+        GCP::Storage::rm($uri)
+        assert_ok 1, "gcs rm completed without dying"
+    }
 
-# ---- GCS round-trip ----
-if (defined $bucket) {
-    val $key = "stryke-gcp-test/$$/" . time() . ".txt"
-    val $uri = "gs://$bucket/$key"
-    var $body = "hello-from-stryke-gcp-$$"
+    # ── Pub/Sub round-trip ──────────────────────────────────────
+    val $topic = $ENV{STRYKE_GCP_TEST_TOPIC}
+    val $sub   = $ENV{STRYKE_GCP_TEST_SUB}
+    if (defined $topic && defined $sub) {
+        val $body = "msg-from-stryke-gcp-$$-" . time()
+        val $sent = GCP::PubSub::publish($topic, $body)
+        assert_ok defined $sent->{message_id}, "pubsub publish returns message_id"
 
-    var $r
-    eval { $r = GCP::Storage::put($uri, data => $body) }
-    $i++
-    p $@ ? "not ok $i - gcs put: $@" :
-           (defined $r->{key} ? "ok $i - gcs put" : "not ok $i - gcs put bad shape")
-
-    var $got
-    eval { $got = GCP::Storage::get($uri) }
-    $i++
-    p $@ ? "not ok $i - gcs get: $@" :
-           ($got eq $body ? "ok $i - gcs get round-trip" :
-            "not ok $i - gcs get returned " . len($got) . " bytes, want " . len($body))
-
-    var $head
-    eval { $head = GCP::Storage::head($uri) }
-    $i++
-    p $@ ? "not ok $i - gcs head: $@" :
-           ($head->{size} == len($body) ? "ok $i - gcs head" :
-            "not ok $i - gcs head size=$head->{size}")
-
-    eval { GCP::Storage::rm($uri) }
-    $i++
-    p $@ ? "not ok $i - gcs rm: $@" : "ok $i - gcs rm"
-}
-
-# ---- Pub/Sub round-trip (needs $TOPIC and $SUB both set and SUB pointing at TOPIC) ----
-if (defined $topic && defined $sub) {
-    val $body = "msg-from-stryke-gcp-$$-" . time()
-
-    var $sent
-    eval { $sent = GCP::PubSub::publish($topic, $body) }
-    $i++
-    p $@ ? "not ok $i - pubsub publish: $@" :
-           (defined $sent->{message_id} ? "ok $i - pubsub publish" :
-            "not ok $i - pubsub publish wrong shape")
-
-    sleep 2
-    var @msgs
-    eval { @msgs = GCP::PubSub::pull($sub, max => 10, ack => 1) }
-    $i++
-    if ($@) {
-        p "not ok $i - pubsub pull: $@"
-    } else {
-        var $found = 0
-        for val $m (@msgs) {
-            $found = 1 if $m->{data} eq $body
-        }
-        p ($found ? "ok $i - pubsub pull (got our message)"
-                  : "not ok $i - pubsub pull missing our message (saw " . len(@msgs) . ")")
+        sleep 2
+        val @msgs = GCP::PubSub::pull($sub, max => 10, ack => 1)
+        val $found = grep { $_->{data} eq $body } @msgs
+        assert_ok $found, "pubsub pull returns our message"
     }
 }
+
+test_run

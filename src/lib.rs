@@ -479,3 +479,93 @@ pub extern "C" fn gcp__pubsub_pull(args: *const c_char) -> *const c_char {
 pub extern "C" fn gcp__pubsub_ack(args: *const c_char) -> *const c_char {
     ffi_call_async(args, op_pubsub_ack)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    /// Env vars are process-global; serialize the resolve_project cases so
+    /// parallel `cargo test` threads can't race on GOOGLE_CLOUD_PROJECT /
+    /// GCLOUD_PROJECT. Single shared lock held across save → mutate →
+    /// assert → restore.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn with_env<F: FnOnce()>(keys: &[&'static str], f: F) {
+        // Lock guard would dangle on panic; we want to restore env even
+        // when an assertion fires, so capture state, run, restore in a
+        // catch_unwind block.
+        let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let saved: Vec<_> = keys.iter().map(|k| (*k, std::env::var(k).ok())).collect();
+        for k in keys {
+            std::env::remove_var(k);
+        }
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+        for (k, v) in &saved {
+            match v {
+                Some(s) => std::env::set_var(k, s),
+                None => std::env::remove_var(k),
+            }
+        }
+        if let Err(p) = result {
+            std::panic::resume_unwind(p);
+        }
+    }
+
+    const KEYS: &[&str] = &["GOOGLE_CLOUD_PROJECT", "GCLOUD_PROJECT"];
+
+    #[test]
+    fn resolve_project_opts_wins_over_env() {
+        with_env(KEYS, || {
+            std::env::set_var("GOOGLE_CLOUD_PROJECT", "from-env");
+            let p = resolve_project(&json!({"project": "from-opts"}));
+            assert_eq!(p.as_deref(), Some("from-opts"));
+        });
+    }
+
+    #[test]
+    fn resolve_project_falls_back_to_google_cloud_project() {
+        with_env(KEYS, || {
+            std::env::set_var("GOOGLE_CLOUD_PROJECT", "primary");
+            let p = resolve_project(&json!({}));
+            assert_eq!(p.as_deref(), Some("primary"));
+        });
+    }
+
+    #[test]
+    fn resolve_project_falls_back_to_gcloud_project() {
+        with_env(KEYS, || {
+            std::env::set_var("GCLOUD_PROJECT", "secondary");
+            let p = resolve_project(&json!({}));
+            assert_eq!(p.as_deref(), Some("secondary"));
+        });
+    }
+
+    #[test]
+    fn resolve_project_prefers_google_cloud_project_over_gcloud_project() {
+        with_env(KEYS, || {
+            std::env::set_var("GOOGLE_CLOUD_PROJECT", "primary");
+            std::env::set_var("GCLOUD_PROJECT", "secondary");
+            let p = resolve_project(&json!({}));
+            assert_eq!(p.as_deref(), Some("primary"));
+        });
+    }
+
+    #[test]
+    fn resolve_project_none_when_unset() {
+        with_env(KEYS, || {
+            let p = resolve_project(&json!({}));
+            assert_eq!(p, None);
+        });
+    }
+
+    #[test]
+    fn resolve_project_ignores_non_string_opts() {
+        with_env(KEYS, || {
+            // `{"project": 42}` must not crash or stringify the integer —
+            // only `as_str` survives the chain.
+            let p = resolve_project(&json!({"project": 42}));
+            assert_eq!(p, None);
+        });
+    }
+}
