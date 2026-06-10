@@ -610,6 +610,94 @@ mod tests {
         });
     }
 
+    /// `gcp__pkg_version(NULL)` must not segfault even though the FFI
+    /// caller is allowed to pass a null `args` pointer.
+    ///
+    /// The implementation branches on `args.is_null()` (line ~394) to
+    /// substitute `Value::Null` instead of dereferencing. Any future
+    /// refactor that drops the null check — e.g. switching to a single
+    /// `CStr::from_ptr` call with no guard — would dereference a null
+    /// pointer in release builds and abort. Pins the explicit null
+    /// branch + verifies the returned pointer is a valid, NUL-terminated,
+    /// JSON-parseable string carrying the expected version field.
+    /// Also exercises `stryke_free_cstring` on the returned pointer to
+    /// catch double-free / wrong-allocator regressions if the export ever
+    /// switches away from `CString::into_raw`.
+    #[test]
+    fn gcp_pkg_version_null_args_returns_valid_version_json() {
+        let p = gcp__pkg_version(std::ptr::null());
+        assert!(!p.is_null(), "gcp__pkg_version returned null for NULL args");
+        // SAFETY: p is non-null and originated from CString::into_raw above.
+        let parsed: Value = unsafe {
+            let cs = CStr::from_ptr(p);
+            serde_json::from_slice(cs.to_bytes()).expect("returned bytes are valid JSON")
+        };
+        assert_eq!(
+            parsed["version"].as_str(),
+            Some(env!("CARGO_PKG_VERSION")),
+            "version field must match CARGO_PKG_VERSION"
+        );
+        // Must be exactly two keys nothing: error path is mutually exclusive
+        // with success path — if both appear, ffi_call_async lost track of
+        // the Result/error distinction.
+        assert!(
+            parsed.get("error").is_none(),
+            "success response must not carry an error key"
+        );
+        // SAFETY: p was returned by an export from this cdylib (line above).
+        unsafe { stryke_free_cstring(p as *mut c_char) };
+    }
+
+    /// `gcp__pkg_version` with non-JSON garbage bytes as `args` must still
+    /// succeed because the JSON parse error is intentionally swallowed in
+    /// `ffi_call_async` (`unwrap_or(Value::Null)`, line ~398) and the
+    /// `pkg_version` handler ignores its input.
+    ///
+    /// Catches a future regression where someone replaces the
+    /// `unwrap_or(Value::Null)` with `unwrap()` to "surface parse errors" —
+    /// that would convert every malformed-args call from a successful
+    /// version probe into a panic-caught `{"error": "stryke-gcp handler
+    /// panicked"}`, breaking stryke's version sniff on hosts where the
+    /// FFI bridge sends an empty or non-JSON args block. Distinct from
+    /// the NULL test above — the NULL path takes the `is_null()` branch;
+    /// this path exercises the SECOND branch (CStr parse → JSON fail →
+    /// fallback to Null).
+    #[test]
+    fn gcp_pkg_version_garbage_args_does_not_panic_or_error() {
+        let garbage = CString::new("not json at all { ] }").unwrap();
+        let p = gcp__pkg_version(garbage.as_ptr());
+        assert!(!p.is_null());
+        let parsed: Value = unsafe {
+            let cs = CStr::from_ptr(p);
+            serde_json::from_slice(cs.to_bytes()).expect("output JSON parses")
+        };
+        assert_eq!(parsed["version"].as_str(), Some(env!("CARGO_PKG_VERSION")));
+        assert!(
+            parsed.get("error").is_none(),
+            "garbage args must not produce an error response — \
+             pkg_version handler ignores its input"
+        );
+        unsafe { stryke_free_cstring(p as *mut c_char) };
+    }
+
+    /// `stryke_free_cstring(NULL)` must be a documented no-op.
+    ///
+    /// The FFI contract (docstring above the export) promises null is
+    /// safe. The current impl has an explicit `if p.is_null() { return; }`
+    /// guard. Catches a future regression where the guard is removed and
+    /// `CString::from_raw(null)` runs — that is UB and on most allocators
+    /// aborts the test process. Running the no-op a few times also catches
+    /// a bug where someone "optimizes" the guard into a `debug_assert!`
+    /// that would let release callers segfault while tests pass.
+    #[test]
+    fn stryke_free_cstring_null_is_noop() {
+        unsafe {
+            stryke_free_cstring(std::ptr::null_mut());
+            stryke_free_cstring(std::ptr::null_mut());
+            stryke_free_cstring(std::ptr::null_mut());
+        }
+    }
+
     #[test]
     fn resolve_project_rejects_array_and_object_opts() {
         // Distinct from the integer case: arrays/objects are also Value
