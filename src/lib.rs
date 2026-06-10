@@ -568,4 +568,29 @@ mod tests {
             assert_eq!(p, None);
         });
     }
+
+    /// Empty-string project from any source is still `Some("")` — we
+    /// don't filter empties out, because that would mask a real
+    /// misconfiguration (env set to literal empty). Pin the behavior so
+    /// future refactors that "helpfully" coerce "" -> None get caught.
+    #[test]
+    fn resolve_project_empty_string_in_opts_round_trips() {
+        with_env(KEYS, || {
+            let p = resolve_project(&json!({"project": ""}));
+            assert_eq!(p.as_deref(), Some(""));
+        });
+    }
+
+    /// Both env vars set but opts win — pins the precedence order so a
+    /// future refactor that swaps the `or_else` chain (env-first instead
+    /// of opts-first) gets caught.
+    #[test]
+    fn resolve_project_opts_win_over_both_env_vars() {
+        with_env(KEYS, || {
+            std::env::set_var("GOOGLE_CLOUD_PROJECT", "from-google");
+            std::env::set_var("GCLOUD_PROJECT", "from-gcloud");
+            let p = resolve_project(&json!({"project": "from-opts"}));
+            assert_eq!(p.as_deref(), Some("from-opts"));
+        });
+    }
 }
