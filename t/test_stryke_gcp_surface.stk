@@ -1,0 +1,50 @@
+## t/test_stryke_gcp_surface.stk — wrapper-completeness pin.
+##
+## Asserts every public `fn X::Y::name` declared in lib/*.stk is
+## reachable via `use` at runtime. Uses `exists &X::Y::name` to
+## probe the symbol table without invoking the sub.
+##
+## Catches:
+##   * a wrapper sub deleted from lib/ but still referenced elsewhere
+##   * a sub-package file dropped from the install layout
+##   * `use Foo::Bar` failing to chase into lib/Bar.stk
+##   * an installed-package entry whose namespace bridge is broken
+##
+## Permission-free — no service, no creds, no live daemon. Private
+## helpers (`_` prefix) are implementation detail and are NOT
+## asserted, so refactoring internals stays free.
+
+use GCP
+use GCP::PubSub
+use GCP::Storage
+
+# ── GCP.stk ──────────────────────────────────────────────
+assert_ok exists &GCP::version, "GCP::version exists"
+assert_ok exists &GCP::identity, "GCP::identity exists"
+assert_ok exists &GCP::ping, "GCP::ping exists"
+assert_ok exists &GCP::gcs_list_buckets, "GCP::gcs_list_buckets exists"
+assert_ok exists &GCP::gcs_list_objects, "GCP::gcs_list_objects exists"
+assert_ok exists &GCP::gcs_get_object, "GCP::gcs_get_object exists"
+assert_ok exists &GCP::gcs_put_object, "GCP::gcs_put_object exists"
+assert_ok exists &GCP::gcs_delete_object, "GCP::gcs_delete_object exists"
+assert_ok exists &GCP::pubsub_publish, "GCP::pubsub_publish exists"
+assert_ok exists &GCP::pubsub_pull, "GCP::pubsub_pull exists"
+assert_ok exists &GCP::pubsub_ack, "GCP::pubsub_ack exists"
+
+# ── PubSub.stk ──────────────────────────────────────────────
+assert_ok exists &GCP::PubSub::publish, "GCP::PubSub::publish exists"
+assert_ok exists &GCP::PubSub::pull, "GCP::PubSub::pull exists"
+assert_ok exists &GCP::PubSub::ack, "GCP::PubSub::ack exists"
+assert_ok exists &GCP::PubSub::topics, "GCP::PubSub::topics exists"
+assert_ok exists &GCP::PubSub::subs, "GCP::PubSub::subs exists"
+assert_ok exists &GCP::PubSub::pump, "GCP::PubSub::pump exists"
+
+# ── Storage.stk ──────────────────────────────────────────────
+assert_ok exists &GCP::Storage::ls, "GCP::Storage::ls exists"
+assert_ok exists &GCP::Storage::get, "GCP::Storage::get exists"
+assert_ok exists &GCP::Storage::put, "GCP::Storage::put exists"
+assert_ok exists &GCP::Storage::head, "GCP::Storage::head exists"
+assert_ok exists &GCP::Storage::rm, "GCP::Storage::rm exists"
+assert_ok exists &GCP::Storage::buckets, "GCP::Storage::buckets exists"
+
+test_run
