@@ -1,0 +1,40 @@
+#!/usr/bin/env stryke
+# examples/discover.stk — minimum-viable tour of the `GCP` package.
+#
+# Runs end-to-end in CI: eval-guarded `GCP::ping` returns false-ish when
+# no application-default-credentials are reachable. Read-only ops
+# (identity, gcs buckets list) have zero side effects.
+#
+# Run:   s examples/discover.stk
+#        GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json s examples/discover.stk
+
+use GCP
+use GCP::Storage
+
+p "=== GCP discover ==="
+p "version:    " . GCP::version()
+p "ADC source: " . ($ENV{GOOGLE_APPLICATION_CREDENTIALS} // "(default ADC chain)")
+p ""
+
+val $alive = eval { GCP::ping() }
+
+if ($alive && !$@) {
+    p "creds: reachable"
+    val $id = eval { GCP::identity() };
+    if (defined $id) {
+        p "  ok:         " . ($id->{ok} // 0)
+        p "  email:      " . ($id->{email} // "(none)")
+    }
+    val @bs = eval { GCP::Storage::buckets() }
+    if (!$@) {
+        p "  gcs buckets: " . scalar(@bs)
+    }
+} else {
+    p "creds: not reachable — skipping live ops"
+    p ""
+    p "expected call shape when live:"
+    p "  val \$id      = GCP::identity()"
+    p "  val @buckets = GCP::Storage::buckets()"
+    p "  val \$body    = GCP::Storage::get(\"gs://bucket/key\")"
+    p "  val \$ack     = GCP::PubSub::publish(\$topic, \$data)"
+}
