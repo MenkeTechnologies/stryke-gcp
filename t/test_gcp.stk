@@ -8,6 +8,8 @@
 ## $STRYKE_GCP_TEST_BUCKET / _TOPIC / _SUB env var is set.
 
 use GCP
+use GCP::Storage
+use GCP::PubSub
 
 # ── permission-free: cdylib reachable ───────────────────────────────
 val $version = GCP::version()
@@ -17,8 +19,8 @@ assert_ok $version, "GCP::version returns truthy (cdylib loaded)"
 val $alive = eval { GCP::ping() }
 
 if ($alive) {
-    val $id = GCP::auth()
-    assert_ok $id->{ok}, "auth returns ok=true"
+    val $id = GCP::identity()
+    assert_ok $id->{ok}, "identity returns ok=true"
 
     # buckets list (read-only, low blast radius)
     val @bs = GCP::Storage::buckets()
