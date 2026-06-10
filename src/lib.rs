@@ -719,4 +719,178 @@ mod tests {
             assert_ne!(p_obj.as_deref(), Some("{}"));
         });
     }
+
+    /// FFI error-path round-trip: a handler that REQUIRES a field (e.g.
+    /// `op_gcs_list_objects` needs `bucket`) must, when called with a NULL
+    /// args pointer, return a non-null, NUL-terminated, JSON-parseable
+    /// CString carrying `{"error": "missing bucket"}` — NOT a null pointer,
+    /// NOT a panic, NOT a partial response. The handler's missing-field check
+    /// (`opts["bucket"].as_str().ok_or_else(...)`) runs BEFORE auth_header(),
+    /// so this is fully deterministic in CI without ADC.
+    ///
+    /// What this catches that existing tests do NOT:
+    /// 1. `gcp_pkg_version_null_args_returns_valid_version_json` covers the
+    ///    SUCCESS path of ffi_call_async (Ok(Value) branch). This covers the
+    ///    Err(anyhow!(...)) branch — a separate arm in the match.
+    /// 2. A future refactor that returns `std::ptr::null()` on handler error
+    ///    instead of a CString would crash any C caller that calls
+    ///    `stryke_free_cstring(p)` without a null check (or worse, calls
+    ///    `parse_json(p)` expecting a JSON pointer per the export contract).
+    /// 3. A future refactor that drops the `catch_unwind` and lets a
+    ///    handler-side `anyhow!` macro internal panic propagate would also
+    ///    fail this test (process abort during cargo test).
+    /// 4. Verifies the returned pointer survives `stryke_free_cstring` — if
+    ///    the error path ever allocates via a different allocator (e.g.
+    ///    constructing the JSON via a custom arena) than `CString::into_raw`
+    ///    uses, the free would be a wrong-allocator UB.
+    #[test]
+    fn ffi_error_path_missing_field_returns_freeable_json_cstring() {
+        let p = gcp__gcs_list_objects(std::ptr::null());
+        assert!(
+            !p.is_null(),
+            "FFI error path must return a CString, not a raw null"
+        );
+        // SAFETY: p originated from CString::into_raw in ffi_call_async.
+        let parsed: Value = unsafe {
+            let cs = CStr::from_ptr(p);
+            serde_json::from_slice(cs.to_bytes()).expect("error response must be valid JSON")
+        };
+        assert_eq!(
+            parsed["error"].as_str(),
+            Some("missing bucket"),
+            "error message must match the handler's anyhow! literal"
+        );
+        // The success-shape keys must NOT appear alongside `error` —
+        // catches a regression where ffi_call_async merges both branches.
+        assert!(
+            parsed.get("bucket").is_none(),
+            "error response must not carry success-shape `bucket` key"
+        );
+        assert!(
+            parsed.get("objects").is_none(),
+            "error response must not carry success-shape `objects` key"
+        );
+        // SAFETY: p was returned by this cdylib's export (line above).
+        unsafe { stryke_free_cstring(p as *mut c_char) };
+    }
+
+    /// FFI error path with GARBAGE (non-JSON) args bytes: the
+    /// `serde_json::from_slice(cs.to_bytes()).unwrap_or(Value::Null)` fallback
+    /// in `ffi_call_async` (line ~398) must convert parse failure into
+    /// `Value::Null`, which then makes `opts["bucket"].as_str()` return None,
+    /// which the handler converts to a clean `{"error": "missing bucket"}`.
+    ///
+    /// Distinct from `ffi_error_path_missing_field_returns_freeable_json_cstring`
+    /// above — that test exercises the `args.is_null()` BRANCH (first arm of
+    /// the if). This one exercises the SECOND arm: non-null pointer, JSON
+    /// parse fails, fallback Value::Null, handler errors cleanly. Both
+    /// paths must converge on the same observable behavior (error JSON +
+    /// freeable pointer), otherwise the cdylib's contract is asymmetric
+    /// across NULL vs garbage input — which would surface as a hard-to-debug
+    /// stryke-side bug where some hosts work and others don't depending on
+    /// whether the FFI bridge sends NULL or empty-string args.
+    ///
+    /// Catches: a future refactor that replaces `unwrap_or(Value::Null)` with
+    /// `unwrap()` would panic here → caught by `catch_unwind` → return
+    /// `{"error":"stryke-gcp handler panicked"}`, masking the real "missing
+    /// bucket" diagnostic the user needs to fix their call.
+    #[test]
+    fn ffi_garbage_args_to_field_requiring_handler_yields_missing_field_error() {
+        let garbage = CString::new("{not valid json at all }").unwrap();
+        let p = gcp__gcs_list_objects(garbage.as_ptr());
+        assert!(!p.is_null());
+        let parsed: Value = unsafe {
+            let cs = CStr::from_ptr(p);
+            serde_json::from_slice(cs.to_bytes()).expect("output JSON parses")
+        };
+        // The CRUCIAL invariant: we must see "missing bucket" — NOT
+        // "stryke-gcp handler panicked". A panic-caught error here would
+        // prove ffi_call_async lost the Value::Null fallback.
+        assert_eq!(
+            parsed["error"].as_str(),
+            Some("missing bucket"),
+            "garbage args must fall back to Value::Null and surface the \
+             handler's own missing-field error, not a panic-caught generic"
+        );
+        assert_ne!(
+            parsed["error"].as_str(),
+            Some("stryke-gcp handler panicked"),
+            "ffi_call_async must NOT lose the Value::Null fallback on parse fail"
+        );
+        unsafe { stryke_free_cstring(p as *mut c_char) };
+    }
+
+    /// `op_pubsub_ack` builds the request body from
+    /// `ack_ids.iter().filter_map(|v| v.as_str().map(String::from))` and
+    /// then reports `acked: ack_ids.len()` — the FILTERED length, not the
+    /// input length. If the caller passes a mixed array `["good", 42, null,
+    /// "also-good"]`, only the two strings make it into the actual
+    /// `ackIds` payload sent to Pub/Sub, and only those two are counted.
+    ///
+    /// This pins the silent-drop semantics for non-string array elements.
+    /// The bug class it catches: a future refactor that "improves" the
+    /// reported count by recording `opts["ack_ids"].as_array().unwrap().len()`
+    /// at the top of the function (before the filter) would lie to the
+    /// caller about how many messages were actually acked — they'd think
+    /// 4 succeeded when only 2 were submitted, causing the other 2 to
+    /// redeliver indefinitely.
+    ///
+    /// We can't test the HTTP path without a fake server, but we CAN
+    /// observe the filter behavior via the FFI error path: pass an
+    /// `ack_ids` array of only non-strings, the filter produces an empty
+    /// Vec, but the field IS present (so the `as_array().ok_or_else` check
+    /// passes), and the request fails at auth (no ADC in CI). The error
+    /// message therefore tells us whether the function got PAST the
+    /// ack_ids parsing. If a regression makes ack_ids parsing reject
+    /// non-string-only arrays earlier (e.g. someone adds an
+    /// `if ack_ids.is_empty()` guard with a different error literal), this
+    /// test will see a different error string.
+    ///
+    /// What this is NOT: a smoke test. It pins a specific invariant
+    /// (parse → filter → no early reject for empty filtered Vec → reach
+    /// auth) that is structurally distinct from any test in the file.
+    #[test]
+    fn pubsub_ack_filter_admits_empty_filtered_vec_past_parse() {
+        with_env(KEYS, || {
+            std::env::set_var("GOOGLE_CLOUD_PROJECT", "test-project");
+            // ack_ids array is present (so as_array succeeds) but contains
+            // only non-strings (so the filter_map yields empty).
+            let args = CString::new(
+                serde_json::to_string(&json!({
+                    "subscription": "test-sub",
+                    "ack_ids": [42, null, true, {"foo": "bar"}],
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+            let p = gcp__pubsub_ack(args.as_ptr());
+            assert!(!p.is_null());
+            let parsed: Value = unsafe {
+                let cs = CStr::from_ptr(p);
+                serde_json::from_slice(cs.to_bytes()).expect("output JSON parses")
+            };
+            // Whatever the error is, it MUST NOT be "missing ack_ids
+            // (array)" — that would mean a regression added an emptiness
+            // check that incorrectly rejected the array.
+            let err = parsed["error"].as_str().unwrap_or("");
+            assert_ne!(
+                err, "missing ack_ids (array)",
+                "non-string ack_ids array must still pass the as_array() check; \
+                 got error: {err}"
+            );
+            // Also must not be the project-missing literal — project IS
+            // resolved from env. Catches a regression where env resolution
+            // order changes silently.
+            assert_ne!(
+                err, "missing project",
+                "GOOGLE_CLOUD_PROJECT was set; resolve_project must succeed"
+            );
+            // Also must not be subscription-missing — we passed it.
+            assert_ne!(
+                err, "missing subscription",
+                "subscription was provided in args"
+            );
+            unsafe { stryke_free_cstring(p as *mut c_char) };
+        });
+    }
 }
