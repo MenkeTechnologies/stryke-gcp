@@ -593,4 +593,42 @@ mod tests {
             assert_eq!(p.as_deref(), Some("from-opts"));
         });
     }
+
+    #[test]
+    fn resolve_project_null_opt_falls_back_to_env_not_literal_null() {
+        // Catches a future regression where `as_str()` is replaced with a
+        // permissive `to_string()` to "accept any type" — that would stringify
+        // serde's null token to the literal `"null"`, producing a URL like
+        // `?project=null` that would 400 against GCS / Pub/Sub instead of
+        // falling through to GOOGLE_CLOUD_PROJECT. Pins both the null-rejection
+        // invariant AND that the env fallback still fires in the same call.
+        with_env(KEYS, || {
+            std::env::set_var("GOOGLE_CLOUD_PROJECT", "from-env");
+            let p = resolve_project(&json!({"project": null}));
+            assert_eq!(p.as_deref(), Some("from-env"));
+            assert_ne!(p.as_deref(), Some("null"));
+        });
+    }
+
+    #[test]
+    fn resolve_project_rejects_array_and_object_opts() {
+        // Distinct from the integer case: arrays/objects are also Value
+        // variants whose `Display` impl produces `"[]"` / `"{}"` — any future
+        // refactor that switches from `as_str()` to `to_string()` /
+        // `serde_json::to_string()` would silently emit those bracket strings
+        // as the project ID and corrupt every REST URL. The integer test
+        // alone does NOT catch this because `42.to_string()` looks plausible
+        // ("42" is a valid project-name char set); brackets are the unambiguous
+        // tell.
+        with_env(KEYS, || {
+            std::env::set_var("GOOGLE_CLOUD_PROJECT", "real-project");
+            let p_arr = resolve_project(&json!({"project": []}));
+            assert_eq!(p_arr.as_deref(), Some("real-project"));
+            assert_ne!(p_arr.as_deref(), Some("[]"));
+
+            let p_obj = resolve_project(&json!({"project": {}}));
+            assert_eq!(p_obj.as_deref(), Some("real-project"));
+            assert_ne!(p_obj.as_deref(), Some("{}"));
+        });
+    }
 }
