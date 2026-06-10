@@ -8,7 +8,7 @@ val $uri = $ARGV[0]
 die "usage: gcs_put_get.stk gs://bucket/key\n" unless defined $uri
 
 val $body = "hello from stryke at " . time()
-val $r = GCP::Storage::put $uri, data => $body
+val $r = GCP::Storage::put($uri, data => $body)
 p "put: " . to_json($r)
 
 val $back = GCP::Storage::get $uri
@@ -16,5 +16,5 @@ p "get: $back"
 
 p "match: " . ($back eq $body ? "yes" : "no")
 
-GCP::Storage::rm $uri
+GCP::Storage::rm($uri)
 p "deleted"
