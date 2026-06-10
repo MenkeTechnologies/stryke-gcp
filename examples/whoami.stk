@@ -1,0 +1,41 @@
+#!/usr/bin/env stryke
+# examples/whoami.stk — ADC identity + visible GCS bucket summary.
+#
+# Read-only — identity, GCS buckets list. Eval-guarded — missing ADC
+# exits cleanly.
+#
+# Run:   s examples/whoami.stk
+#        GOOGLE_APPLICATION_CREDENTIALS=/key.json s examples/whoami.stk
+
+use GCP
+use GCP::Storage
+
+p "=== GCP whoami ==="
+
+val $alive = eval { GCP::ping() }
+unless ($alive) {
+    p "GCP ADC not reachable — run `gcloud auth application-default login` or set GOOGLE_APPLICATION_CREDENTIALS to exercise the demo"
+    exit 0
+}
+
+val $id = eval { GCP::identity() }
+if (!$@ && defined $id) {
+    p "ok:        " . ($id->{ok}     // 0)
+    p "email:     " . ($id->{email}  // "(unknown)")
+    p "project:   " . ($id->{project}// "(unknown)")
+}
+p ""
+
+val @bs = eval { GCP::Storage::buckets() }
+if (!$@) {
+    p "GCS buckets visible: " . scalar(@bs)
+    val $shown = scalar(@bs) < 5 ? scalar(@bs) : 5
+    for (var $i = 0; $i < $shown; $i++) {
+        val $b = $bs[$i]
+        val $name = ref($b) eq "HASH" ? ($b->{name} // "?") : $b
+        p "  - $name"
+    }
+    if (scalar(@bs) > 5) {
+        p "  ... + " . (scalar(@bs) - 5) . " more"
+    }
+}
