@@ -89,7 +89,7 @@ make install
 The cdylib is dlopened in-process on first `use GCP`. A shared tokio
 runtime + `reqwest::Client` + cached ADC credentials are held in
 `OnceCell` — no fork-per-call, no re-running of ADC discovery /
-metadata-server / WIF / SA-file lookup. v0.2.0 covers GCS + Pub/Sub;
+metadata-server / WIF / SA-file lookup. v0.2.1 covers GCS + Pub/Sub;
 BigQuery and the v1 helper's broader op set can be added incrementally.
 
 ## [0x03] Auth
