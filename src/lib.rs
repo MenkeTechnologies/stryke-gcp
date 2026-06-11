@@ -893,4 +893,110 @@ mod tests {
             unsafe { stryke_free_cstring(p as *mut c_char) };
         });
     }
+
+    /// `op_gcs_get_object` validates `bucket` (line ~176) BEFORE `key`
+    /// (line ~179). When BOTH are absent the caller must see "missing
+    /// bucket" — the FIRST check — and never reach the `key` check. When
+    /// `bucket` is present but `key` is absent the caller must see
+    /// "missing key". This pins the validation ORDER.
+    ///
+    /// Why it matters / what it catches: a future refactor that hoists the
+    /// `key` extraction above the `bucket` extraction (e.g. to build the
+    /// object path first) would flip the reported diagnostic — a caller who
+    /// forgot BOTH would be told "missing key" while still also lacking a
+    /// bucket, sending them to fix the wrong argument. Distinct from the
+    /// existing `op_gcs_list_objects` "missing bucket" test: that handler
+    /// has no `key` field at all, so it cannot exercise the two-field
+    /// precedence chain. Both checks run before `auth_header()`, so this is
+    /// deterministic in CI with no ADC.
+    #[test]
+    fn gcs_get_object_validates_bucket_before_key() {
+        // Both missing → first check fires → "missing bucket".
+        let p_both = gcp__gcs_get_object(std::ptr::null());
+        assert!(!p_both.is_null());
+        let parsed_both: Value = unsafe {
+            let cs = CStr::from_ptr(p_both);
+            serde_json::from_slice(cs.to_bytes()).expect("error JSON parses")
+        };
+        assert_eq!(
+            parsed_both["error"].as_str(),
+            Some("missing bucket"),
+            "bucket is checked first; both-missing must report bucket, not key"
+        );
+        unsafe { stryke_free_cstring(p_both as *mut c_char) };
+
+        // bucket present, key absent → second check fires → "missing key".
+        let args = CString::new(serde_json::to_string(&json!({"bucket": "b"})).unwrap()).unwrap();
+        let p_key = gcp__gcs_get_object(args.as_ptr());
+        assert!(!p_key.is_null());
+        let parsed_key: Value = unsafe {
+            let cs = CStr::from_ptr(p_key);
+            serde_json::from_slice(cs.to_bytes()).expect("error JSON parses")
+        };
+        assert_eq!(
+            parsed_key["error"].as_str(),
+            Some("missing key"),
+            "bucket supplied; only key is missing — must report key, not bucket"
+        );
+        unsafe { stryke_free_cstring(p_key as *mut c_char) };
+    }
+
+    /// `op_pubsub_publish` resolves `project` (line ~271) BEFORE validating
+    /// `topic` (line ~272). With `GOOGLE_CLOUD_PROJECT` set but `topic`
+    /// absent, the caller must reach the topic check and see "missing
+    /// topic". With NO project source AND topic absent, the project check
+    /// fires FIRST and the caller must see "missing project" — never
+    /// "missing topic".
+    ///
+    /// Bug class caught: a future refactor that validates `topic` before
+    /// resolving `project` would tell a caller who is missing BOTH that
+    /// `topic` is the problem, masking the more fundamental missing-project
+    /// misconfiguration (which also can't be fixed by adding a topic). This
+    /// pins the resolve-project-first precedence specifically for the
+    /// publish path, which is structurally distinct from the ack path tested
+    /// in `pubsub_ack_filter_admits_empty_filtered_vec_past_parse` (that test
+    /// always has project set and never exercises the project-missing arm).
+    /// Both checks precede `auth_header()`, so deterministic without ADC.
+    #[test]
+    fn pubsub_publish_resolves_project_before_topic() {
+        // Project resolvable from env, topic absent → reach topic check.
+        with_env(KEYS, || {
+            std::env::set_var("GOOGLE_CLOUD_PROJECT", "test-project");
+            let args = CString::new(serde_json::to_string(&json!({"data": "x"})).unwrap()).unwrap();
+            let p = gcp__pubsub_publish(args.as_ptr());
+            assert!(!p.is_null());
+            let parsed: Value = unsafe {
+                let cs = CStr::from_ptr(p);
+                serde_json::from_slice(cs.to_bytes()).expect("error JSON parses")
+            };
+            assert_eq!(
+                parsed["error"].as_str(),
+                Some("missing topic"),
+                "project resolved from env; topic absent — must report topic"
+            );
+            unsafe { stryke_free_cstring(p as *mut c_char) };
+        });
+
+        // No project source at all, topic also absent → project check first.
+        with_env(KEYS, || {
+            let args = CString::new(serde_json::to_string(&json!({"data": "x"})).unwrap()).unwrap();
+            let p = gcp__pubsub_publish(args.as_ptr());
+            assert!(!p.is_null());
+            let parsed: Value = unsafe {
+                let cs = CStr::from_ptr(p);
+                serde_json::from_slice(cs.to_bytes()).expect("error JSON parses")
+            };
+            assert_eq!(
+                parsed["error"].as_str(),
+                Some("missing project"),
+                "no project source; project check fires before topic check"
+            );
+            assert_ne!(
+                parsed["error"].as_str(),
+                Some("missing topic"),
+                "must not report topic when project is the first unmet requirement"
+            );
+            unsafe { stryke_free_cstring(p as *mut c_char) };
+        });
+    }
 }
