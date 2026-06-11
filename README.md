@@ -27,16 +27,15 @@ slim.
 ## Table of Contents
 
 - [\[0x00\] Why this is a package, not a builtin](#0x00-why-this-is-a-package-not-a-builtin)
-- [\[0x01\] Scope (v1)](#0x01-scope-v1)
+- [\[0x01\] Scope (v0.2.x)](#0x01-scope-v02x)
 - [\[0x02\] Install](#0x02-install)
 - [\[0x03\] Auth](#0x03-auth)
 - [\[0x04\] Quick start](#0x04-quick-start)
-- [\[0x05\] CLI: `gcp`](#0x05-cli-gcp)
-- [\[0x06\] API reference](#0x06-api-reference)
-- [\[0x07\] Helper protocol](#0x07-helper-protocol)
-- [\[0x08\] Tests](#0x08-tests)
-- [\[0x09\] Dev workflow](#0x09-dev-workflow)
-- [\[0x0A\] Layout](#0x0a-layout)
+- [\[0x05\] API reference](#0x05-api-reference)
+- [\[0x06\] FFI layer](#0x06-ffi-layer)
+- [\[0x07\] Tests](#0x07-tests)
+- [\[0x08\] Dev workflow](#0x08-dev-workflow)
+- [\[0x09\] Layout](#0x09-layout)
 - [\[0xFF\] License](#0xff-license)
 
 ---
@@ -47,18 +46,19 @@ Same rationale as the other `stryke-*` cloud packages. GCP integration
 needs an auth chain (Application Default Credentials), a TLS HTTP client,
 and JSON serialization — fine to bundle once, opt-in.
 
-`stryke-gcp` ships a thin stryke library plus a Rust helper binary
-(`stryke-gcp-helper`, ~5.5 MB). The helper talks to GCP's REST APIs
-directly via `reqwest` + `google-cloud-auth` — no heavyweight SDK crate
-involvement, no version-conflict tax from chrono / arrow / smithy that the
-proper SDK crates currently impose.
+`stryke-gcp` ships a thin stryke library plus a Rust cdylib
+(`libstryke_gcp.{dylib,so}`) that stryke's FFI bridge dlopens in-process
+on first `use GCP`. The cdylib talks to GCP's REST APIs directly via
+`reqwest` + `google-cloud-auth` — no heavyweight SDK crate involvement,
+no version-conflict tax from chrono / arrow / smithy that the proper SDK
+crates currently impose.
 
-## [0x01] Scope (v1)
+## [0x01] Scope (v0.2.x)
 
 | Service | Status |
 |---|---|
-| Cloud Storage (GCS) | shipped — ls / get / put / head / rm / buckets |
-| Pub/Sub | shipped — publish / pull / ack / topics / subs |
+| Cloud Storage (GCS) | shipped — ls / get / put / rm / buckets (`head` deferred) |
+| Pub/Sub | shipped — publish / pull / ack (`topics` / `subs` listing deferred) |
 | Auth identity | shipped — ADC + project resolution |
 | BigQuery | **deferred v2** — official Rust crate's dep tree (arrow-arith + chrono) has unresolved trait-method ambiguity; will revisit with a REST-only path. |
 | Firestore | **deferred v2** |
@@ -106,7 +106,7 @@ Set the project once and forget about it:
 export GOOGLE_CLOUD_PROJECT=my-project-id
 ```
 
-Per call, override with `--project=...` or `project => "..."`.
+Per call, override with `project => "..."`.
 
 ## [0x04] Quick start
 
@@ -115,9 +115,9 @@ use GCP::Storage
 use GCP::PubSub
 
 # Auth + project check.
-p to_json GCP::auth()
+p to_json GCP::identity()
 
-# GCS — list, get, put, head, rm.
+# GCS — list, get, put, rm.
 my @entries = GCP::Storage::ls "gs://my-bucket/prefix/", delimiter => "/"
 for my $e (@entries) {
     p "$e->{type}: $e->{key} ($e->{size} bytes)"
@@ -127,7 +127,6 @@ GCP::Storage::put "gs://my-bucket/hello.txt",
                   data => "hello stryke",
                   content_type => "text/plain"
 p GCP::Storage::get "gs://my-bucket/hello.txt"
-p to_json GCP::Storage::head "gs://my-bucket/hello.txt"
 GCP::Storage::rm "gs://my-bucket/hello.txt"
 
 # Pub/Sub.
@@ -152,43 +151,14 @@ GCP::Storage::ls "gs://my-bucket/", project => "other-project"
 GCP::PubSub::publish "my-topic", "x", project => "other-project"
 ```
 
-## [0x05] CLI: `gcp`
-
-```sh
-gcp gcs ls gs://bucket/prefix/ --delimiter=/
-gcp gcs get gs://bucket/key --output=local.bin
-gcp gcs put gs://bucket/key --input=local.bin --content-type=image/png
-gcp gcs head gs://bucket/key
-gcp gcs rm gs://bucket/key
-gcp gcs buckets
-
-gcp pubsub publish my-topic --data='hello' --attr source=cli
-gcp pubsub pull    my-sub --max=10 --ack
-gcp pubsub ack     my-sub --ids=ABC,DEF
-gcp pubsub topics
-gcp pubsub subs
-
-gcp auth                                  # current project + ADC source
-gcp ping                                  # alias for auth (exit 0 on success)
-gcp build                                 # cargo build --release
-gcp version
-```
-
-Global flags:
-
-```
--p, --project PROJECT         $GOOGLE_CLOUD_PROJECT
-```
-
-The helper has no `--region` or `--endpoint` flags — GCP is global by
-project, and the API endpoints are universal.
-
-## [0x06] API reference
+## [0x05] API reference
 
 ### `use GCP`
 
-Plumbing: `GCP::helper_path()`, `GCP::ensure_built()`, `GCP::version()`,
-`GCP::ping(%opts)`, `GCP::auth(%opts)`.
+Plumbing: `GCP::version()` (cdylib package version), `GCP::ping(%opts)`
+(connectivity probe), `GCP::identity(%opts)` → `{ ok, project,
+credentials_source }`, plus the flat `GCP::<service>_<op>` fns the
+namespaced wrappers below delegate to.
 
 ### `use GCP::Storage`
 
@@ -196,7 +166,7 @@ Plumbing: `GCP::helper_path()`, `GCP::ensure_built()`, `GCP::version()`,
 GCP::Storage::ls       $uri, %opts → @entries
 GCP::Storage::get      $uri, %opts → $body | $path (when output=>"PATH")
 GCP::Storage::put      $uri, %opts → \%resp         # data=>$bytes | input=>"PATH"
-GCP::Storage::head     $uri, %opts → \%resp
+GCP::Storage::head     $uri, %opts → dies            # deferred in the v0.2.x cdylib
 GCP::Storage::rm       $uri, %opts → \%resp
 GCP::Storage::buckets  %opts → @buckets
 ```
@@ -211,8 +181,8 @@ updated, storage_class, generation}` or `{type=>"prefix", key}` when
 GCP::PubSub::publish  $topic, $data, %opts → \%resp     # opts: attrs=>{...}, ordering_key
 GCP::PubSub::pull     $sub, %opts → @messages          # opts: max, deadline, ack
 GCP::PubSub::ack      $sub, $ids_or_aref, %opts → \%resp
-GCP::PubSub::topics   %opts → @names
-GCP::PubSub::subs     %opts → @sub_objects
+GCP::PubSub::topics   %opts → dies                     # deferred in the v0.2.x cdylib
+GCP::PubSub::subs     %opts → dies                     # deferred in the v0.2.x cdylib
 GCP::PubSub::pump     $sub, %opts → $count             # callback + auto-ack
 ```
 
@@ -220,23 +190,23 @@ Topic / subscription names accept bare (`my-topic`) or fully qualified
 (`projects/PROJECT/topics/my-topic`) forms. Bare names expand against
 `$opts{project}` or `$GOOGLE_CLOUD_PROJECT`.
 
-## [0x07] Helper protocol
+## [0x06] FFI layer
 
-```sh
-stryke-gcp-helper gcs ls gs://bucket/prefix --delimiter=/
-stryke-gcp-helper gcs put gs://bucket/k --input=- < file
-stryke-gcp-helper pubsub publish my-topic --data='hello' --attr k=v
-stryke-gcp-helper pubsub pull my-sub --max=10 --ack
-stryke-gcp-helper auth
-```
+Each `GCP::*` wrapper builds a JSON args dict and calls a sibling
+`gcp__*` symbol resolved out of `libstryke_gcp.{dylib,so}`. The cdylib
+is dlopened in-process on first `use GCP` (via stryke's
+`pkg::commands::try_load_ffi_for` resolver hook) and exposes the entry
+points listed in the `[ffi]` exports table in `stryke.toml`, spanning
+identity, GCS, and Pub/Sub.
 
-Output:
+**Persistent state:** a shared tokio runtime + `reqwest::Client` +
+cached ADC credentials held in `OnceCell` — no fork-per-call, no
+re-running of ADC discovery / metadata-server / WIF / SA-file lookup
+on each call.
 
-* List / stream commands → NDJSON, one JSON object per line.
-* Single-object commands → one JSON object + newline.
-* All errors → exit non-zero, message on stderr.
+Errors come back as `{"error": "<msg>"}` — the wrapper `die`s with it.
 
-## [0x08] Tests
+## [0x07] Tests
 
 ```sh
 cargo test                                          # compiles, no live calls
@@ -249,10 +219,10 @@ export STRYKE_GCP_TEST_SUB=my-test-sub
 s test t/
 ```
 
-The suite skips cleanly when the helper isn't built, when ADC isn't
+The suite skips cleanly when the cdylib isn't installed, when ADC isn't
 reachable, or when the per-service env vars are unset.
 
-## [0x09] Dev workflow
+## [0x08] Dev workflow
 
 ```sh
 make             # release build
@@ -262,34 +232,30 @@ make install
 make clean
 ```
 
-## [0x0A] Layout
+## [0x09] Layout
 
 ```
 stryke-gcp/
   stryke.toml                      # stryke package manifest
-  Cargo.toml                       # Rust helper crate manifest
+  Cargo.toml                       # cdylib crate manifest
   Makefile
   src/
-    main.rs                        # CLI dispatch
-    common.rs                      # ADC + REST plumbing
-    gcs.rs                         # GCS JSON API
-    pubsub.rs                      # Pub/Sub REST API
-    auth.rs                        # identity check
+    lib.rs                         # cdylib — gcp__* extern "C" exports
   lib/
-    GCP.stk                        # `use GCP` — plumbing + ping + auth
+    GCP.stk                        # `use GCP` — plumbing + ping + identity
     Storage.stk                    # `use GCP::Storage`
     PubSub.stk                     # `use GCP::PubSub`
-  bin/
-    gcp.stk                        # `gcp` CLI
-    gcp-build.stk
   t/
     test_gcp.stk                   # end-to-end (gated on ADC + opt-in env vars)
+    test_stryke_gcp_surface.stk    # wrapper-completeness pin
   examples/
+    discover.stk
     gcs_browse.stk
     gcs_put_get.stk
     pubsub_pump.stk
+    whoami.stk
   .github/workflows/
-    ci.yml                         # cargo + fake-gcs / pubsub emulator
+    ci.yml                         # cargo check/test/clippy + docs lint
     release.yml                    # cross-compile + GH release on tag push
 ```
 
