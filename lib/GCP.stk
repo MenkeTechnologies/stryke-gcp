@@ -90,6 +90,20 @@ fn GCP::gcs_delete_object ($bucket, $key, %opts) {
     GCP::_decode("gcs_delete_object", gcp__gcs_delete_object(to_json($r)))->{deleted} ? 1 : 0
 }
 
+## Object metadata for gs://$bucket/$key (size, content_type, updated, …).
+fn GCP::gcs_head_object ($bucket, $key, %opts) {
+    val $r = GCP::_req({ bucket => $bucket, key => $key }, \%opts)
+    GCP::_decode("gcs_head_object", gcp__gcs_head_object(to_json($r)))
+}
+
+## Server-side copy gs://$src_bucket/$src_key → gs://$dst_bucket/$dst_key.
+fn GCP::gcs_copy_object ($src_bucket, $src_key, $dst_bucket, $dst_key, %opts) {
+    val $r = GCP::_req(
+        { src_bucket => $src_bucket, src_key => $src_key,
+          dst_bucket => $dst_bucket, dst_key => $dst_key }, \%opts)
+    GCP::_decode("gcs_copy_object", gcp__gcs_copy_object(to_json($r)))
+}
+
 # ── Pub/Sub ──────────────────────────────────────────────────────────
 
 ## Publish to topic. Returns array of message IDs.
@@ -120,5 +134,40 @@ fn GCP::pubsub_ack ($subscription, $ack_ids, %opts) {
         \%opts
     )
     GCP::_decode("pubsub_ack", gcp__pubsub_ack(to_json($r)))->{acked}
+}
+
+## List topic names in the active project.
+fn GCP::pubsub_list_topics (%opts) {
+    val $o = GCP::_decode("pubsub_list_topics", gcp__pubsub_list_topics(to_json(GCP::_req({}, \%opts))))
+    @{ $o->{topics} }
+}
+
+## List subscriptions ({ name, topic }) in the active project.
+fn GCP::pubsub_list_subscriptions (%opts) {
+    val $o = GCP::_decode("pubsub_list_subscriptions",
+        gcp__pubsub_list_subscriptions(to_json(GCP::_req({}, \%opts))))
+    @{ $o->{subscriptions} }
+}
+
+## Create topic $topic in the active project.
+fn GCP::pubsub_create_topic ($topic, %opts) {
+    GCP::_decode("pubsub_create_topic",
+        gcp__pubsub_create_topic(to_json(GCP::_req({ topic => $topic }, \%opts))))
+}
+
+## Create subscription $subscription on $topic. opts: ack_deadline (default 10).
+fn GCP::pubsub_create_subscription ($subscription, $topic, %opts) {
+    val $r = GCP::_req(
+        { subscription => $subscription, topic => $topic, ack_deadline => $opts{ack_deadline} }, \%opts)
+    GCP::_decode("pubsub_create_subscription", gcp__pubsub_create_subscription(to_json($r)))
+}
+
+# ── Secret Manager ───────────────────────────────────────────────────
+
+## Access a secret's payload. opts: version (default "latest"). Returns the
+## decoded secret value string.
+fn GCP::secret_access ($secret, %opts) {
+    val $r = GCP::_req({ secret => $secret, version => $opts{version} }, \%opts)
+    GCP::_decode("secret_access", gcp__secret_access(to_json($r)))->{value}
 }
 

@@ -52,14 +52,24 @@ fn GCP::PubSub::ack ($subscription, $ids, %opts) {
     GCP::pubsub_ack($bare, $list, %opts)
 }
 
-## List topics in the configured project. Deferred in v0.2.0.
+## List topic names in the configured project.
 fn GCP::PubSub::topics (%opts) {
-    die "GCP::PubSub::topics: deferred in v0.2.0 cdylib — add gcp__pubsub_list_topics to the export list"
+    GCP::pubsub_list_topics(%opts)
 }
 
-## List subscriptions in the configured project. Deferred in v0.2.0.
+## List subscriptions ({ name, topic }) in the configured project.
 fn GCP::PubSub::subs (%opts) {
-    die "GCP::PubSub::subs: deferred in v0.2.0 cdylib — add gcp__pubsub_list_subscriptions to the export list"
+    GCP::pubsub_list_subscriptions(%opts)
+}
+
+## Create a topic by name.
+fn GCP::PubSub::create_topic ($topic, %opts) {
+    GCP::pubsub_create_topic($topic, %opts)
+}
+
+## Create a subscription $name bound to $topic. opts: ack_deadline.
+fn GCP::PubSub::create_sub ($name, $topic, %opts) {
+    GCP::pubsub_create_subscription($name, $topic, %opts)
 }
 
 ## Convenience: pull → callback → ack each message. Returns count handled.

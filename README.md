@@ -57,8 +57,9 @@ crates currently impose.
 
 | Service | Status |
 |---|---|
-| Cloud Storage (GCS) | shipped — ls / get / put / rm / buckets (`head` deferred) |
-| Pub/Sub | shipped — publish / pull / ack (`topics` / `subs` listing deferred) |
+| Cloud Storage (GCS) | shipped — ls / get / put / rm / head / cp / buckets |
+| Pub/Sub | shipped — publish / pull / ack / list topics+subs / create topic+sub |
+| Secret Manager | shipped — access secret versions |
 | Auth identity | shipped — ADC + project resolution |
 | BigQuery | **deferred v2** — official Rust crate's dep tree (arrow-arith + chrono) has unresolved trait-method ambiguity; will revisit with a REST-only path. |
 | Firestore | **deferred v2** |
@@ -166,7 +167,8 @@ namespaced wrappers below delegate to.
 GCP::Storage::ls       $uri, %opts → @entries
 GCP::Storage::get      $uri, %opts → $body | $path (when output=>"PATH")
 GCP::Storage::put      $uri, %opts → \%resp         # data=>$bytes | input=>"PATH"
-GCP::Storage::head     $uri, %opts → dies            # deferred in the v0.2.x cdylib
+GCP::Storage::head     $uri, %opts → \%meta         # size, content_type, updated, md5_hash, …
+GCP::Storage::cp       $src_uri, $dst_uri, %opts → \%resp   # server-side copy
 GCP::Storage::rm       $uri, %opts → \%resp
 GCP::Storage::buckets  %opts → @buckets
 ```
@@ -181,9 +183,17 @@ updated, storage_class, generation}` or `{type=>"prefix", key}` when
 GCP::PubSub::publish  $topic, $data, %opts → \%resp     # opts: attrs=>{...}, ordering_key
 GCP::PubSub::pull     $sub, %opts → @messages          # opts: max, deadline, ack
 GCP::PubSub::ack      $sub, $ids_or_aref, %opts → \%resp
-GCP::PubSub::topics   %opts → dies                     # deferred in the v0.2.x cdylib
-GCP::PubSub::subs     %opts → dies                     # deferred in the v0.2.x cdylib
-GCP::PubSub::pump     $sub, %opts → $count             # callback + auto-ack
+GCP::PubSub::topics       %opts → @topic_names
+GCP::PubSub::subs         %opts → @{ {name, topic} }
+GCP::PubSub::create_topic $topic, %opts → \%resp
+GCP::PubSub::create_sub   $name, $topic, %opts → \%resp   # opts: ack_deadline
+GCP::PubSub::pump         $sub, %opts → $count             # callback + auto-ack
+```
+
+### `use GCP` — Secret Manager
+
+```stryke
+GCP::secret_access  $secret, %opts → $value    # opts: version (default "latest")
 ```
 
 Topic / subscription names accept bare (`my-topic`) or fully qualified

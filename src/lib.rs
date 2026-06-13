@@ -384,6 +384,233 @@ async fn op_pubsub_ack(opts: Value) -> Result<Value> {
     Ok(json!({"subscription": subscription, "acked": ack_ids.len()}))
 }
 
+// ── GCS extras: head + copy ──────────────────────────────────────────────────
+
+/// Object metadata (`HEAD`-equivalent: GET the JSON metadata, no media).
+async fn op_gcs_head_object(opts: Value) -> Result<Value> {
+    let bucket = opts["bucket"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing bucket"))?;
+    let key = opts["key"].as_str().ok_or_else(|| anyhow!("missing key"))?;
+    let token = auth_header().await?;
+    let url = format!(
+        "https://storage.googleapis.com/storage/v1/b/{}/o/{}",
+        urlencoding::encode(bucket),
+        urlencoding::encode(key)
+    );
+    let resp = client()
+        .get(&url)
+        .header("Authorization", token)
+        .send()
+        .await?
+        .error_for_status()?;
+    let m: Value = resp.json().await?;
+    Ok(json!({
+        "bucket": bucket,
+        "key": key,
+        "size": m["size"].as_str().unwrap_or("0"),
+        "content_type": m["contentType"].as_str().unwrap_or(""),
+        "updated": m["updated"].clone(),
+        "generation": m["generation"].clone(),
+        "md5_hash": m["md5Hash"].clone(),
+        "etag": m["etag"].clone(),
+    }))
+}
+
+/// Server-side copy of an object to another bucket/key.
+async fn op_gcs_copy_object(opts: Value) -> Result<Value> {
+    let src_bucket = opts["src_bucket"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing src_bucket"))?;
+    let src_key = opts["src_key"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing src_key"))?;
+    let dst_bucket = opts["dst_bucket"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing dst_bucket"))?;
+    let dst_key = opts["dst_key"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing dst_key"))?;
+    let token = auth_header().await?;
+    let url = format!(
+        "https://storage.googleapis.com/storage/v1/b/{}/o/{}/copyTo/b/{}/o/{}",
+        urlencoding::encode(src_bucket),
+        urlencoding::encode(src_key),
+        urlencoding::encode(dst_bucket),
+        urlencoding::encode(dst_key)
+    );
+    let resp = client()
+        .post(&url)
+        .header("Authorization", token)
+        .header("Content-Length", "0")
+        .send()
+        .await?
+        .error_for_status()?;
+    let info: Value = resp.json().await?;
+    Ok(json!({
+        "dst_bucket": dst_bucket,
+        "dst_key": dst_key,
+        "generation": info["resource"]["generation"].clone(),
+    }))
+}
+
+// ── Pub/Sub extras: list + create ────────────────────────────────────────────
+
+/// Strip a `projects/<p>/topics/<t>` (or subscriptions) path to its leaf name.
+fn leaf_name(full: &str) -> &str {
+    full.rsplit('/').next().unwrap_or(full)
+}
+
+async fn op_pubsub_list_topics(opts: Value) -> Result<Value> {
+    let project = resolve_project(&opts).ok_or_else(|| anyhow!("missing project"))?;
+    let token = auth_header().await?;
+    let url = format!(
+        "https://pubsub.googleapis.com/v1/projects/{}/topics",
+        urlencoding::encode(&project)
+    );
+    let resp = client()
+        .get(&url)
+        .header("Authorization", token)
+        .send()
+        .await?
+        .error_for_status()?;
+    let body: Value = resp.json().await?;
+    let names: Vec<String> = body["topics"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|t| t["name"].as_str().map(|n| leaf_name(n).to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(json!({"project": project, "topics": names}))
+}
+
+async fn op_pubsub_list_subscriptions(opts: Value) -> Result<Value> {
+    let project = resolve_project(&opts).ok_or_else(|| anyhow!("missing project"))?;
+    let token = auth_header().await?;
+    let url = format!(
+        "https://pubsub.googleapis.com/v1/projects/{}/subscriptions",
+        urlencoding::encode(&project)
+    );
+    let resp = client()
+        .get(&url)
+        .header("Authorization", token)
+        .send()
+        .await?
+        .error_for_status()?;
+    let body: Value = resp.json().await?;
+    let subs: Vec<Value> = body["subscriptions"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .map(|s| {
+                    json!({
+                        "name": leaf_name(s["name"].as_str().unwrap_or("")),
+                        "topic": leaf_name(s["topic"].as_str().unwrap_or("")),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(json!({"project": project, "subscriptions": subs}))
+}
+
+async fn op_pubsub_create_topic(opts: Value) -> Result<Value> {
+    let project = resolve_project(&opts).ok_or_else(|| anyhow!("missing project"))?;
+    let topic = opts["topic"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing topic"))?
+        .to_string();
+    let token = auth_header().await?;
+    let url = format!(
+        "https://pubsub.googleapis.com/v1/projects/{}/topics/{}",
+        urlencoding::encode(&project),
+        urlencoding::encode(&topic)
+    );
+    let resp = client()
+        .put(&url)
+        .header("Authorization", token)
+        .json(&json!({}))
+        .send()
+        .await?
+        .error_for_status()?;
+    let info: Value = resp.json().await?;
+    Ok(json!({"topic": leaf_name(info["name"].as_str().unwrap_or(&topic)), "created": true}))
+}
+
+async fn op_pubsub_create_subscription(opts: Value) -> Result<Value> {
+    let project = resolve_project(&opts).ok_or_else(|| anyhow!("missing project"))?;
+    let subscription = opts["subscription"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing subscription"))?
+        .to_string();
+    let topic = opts["topic"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing topic (the topic to subscribe to)"))?;
+    let token = auth_header().await?;
+    let url = format!(
+        "https://pubsub.googleapis.com/v1/projects/{}/subscriptions/{}",
+        urlencoding::encode(&project),
+        urlencoding::encode(&subscription)
+    );
+    let body = json!({
+        "topic": format!("projects/{project}/topics/{topic}"),
+        "ackDeadlineSeconds": opts["ack_deadline"].as_u64().unwrap_or(10),
+    });
+    let resp = client()
+        .put(&url)
+        .header("Authorization", token)
+        .json(&body)
+        .send()
+        .await?
+        .error_for_status()?;
+    let info: Value = resp.json().await?;
+    Ok(
+        json!({"subscription": leaf_name(info["name"].as_str().unwrap_or(&subscription)), "created": true}),
+    )
+}
+
+// ── Secret Manager ───────────────────────────────────────────────────────────
+
+/// Access a secret version's payload. opts: secret, version (default "latest").
+/// Returns the decoded payload string.
+async fn op_secret_access(opts: Value) -> Result<Value> {
+    use base64::Engine as _;
+    let project = resolve_project(&opts).ok_or_else(|| anyhow!("missing project"))?;
+    let secret = opts["secret"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing secret"))?
+        .to_string();
+    let version = opts["version"].as_str().unwrap_or("latest");
+    let token = auth_header().await?;
+    let url = format!(
+        "https://secretmanager.googleapis.com/v1/projects/{}/secrets/{}/versions/{}:access",
+        urlencoding::encode(&project),
+        urlencoding::encode(&secret),
+        urlencoding::encode(version)
+    );
+    let resp = client()
+        .get(&url)
+        .header("Authorization", token)
+        .send()
+        .await?
+        .error_for_status()?;
+    let body: Value = resp.json().await?;
+    let data_b64 = body["payload"]["data"].as_str().unwrap_or("");
+    let decoded = base64::engine::general_purpose::STANDARD
+        .decode(data_b64)
+        .map_err(|e| anyhow!("decoding secret payload: {e}"))?;
+    let value = match String::from_utf8(decoded.clone()) {
+        Ok(s) => Value::String(s),
+        Err(_) => Value::String(format!(
+            "base64:{}",
+            base64::engine::general_purpose::STANDARD.encode(&decoded)
+        )),
+    };
+    Ok(json!({"secret": secret, "version": version, "value": value}))
+}
+
 // ── FFI plumbing ────────────────────────────────────────────────────────────
 
 fn ffi_call_async<F, Fut>(args: *const c_char, handler: F) -> *const c_char
@@ -478,6 +705,41 @@ pub extern "C" fn gcp__pubsub_pull(args: *const c_char) -> *const c_char {
 #[no_mangle]
 pub extern "C" fn gcp__pubsub_ack(args: *const c_char) -> *const c_char {
     ffi_call_async(args, op_pubsub_ack)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__gcs_head_object(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_gcs_head_object)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__gcs_copy_object(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_gcs_copy_object)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__pubsub_list_topics(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_pubsub_list_topics)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__pubsub_list_subscriptions(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_pubsub_list_subscriptions)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__pubsub_create_topic(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_pubsub_create_topic)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__pubsub_create_subscription(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_pubsub_create_subscription)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__secret_access(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_secret_access)
 }
 
 #[cfg(test)]
@@ -998,5 +1260,16 @@ mod tests {
             );
             unsafe { stryke_free_cstring(p as *mut c_char) };
         });
+    }
+
+    /// Pub/Sub list endpoints return fully-qualified resource paths
+    /// (`projects/p/topics/t`); `leaf_name` must strip them to the bare name
+    /// so callers get `t`, not the whole path.
+    #[test]
+    fn leaf_name_strips_resource_path() {
+        assert_eq!(leaf_name("projects/my-proj/topics/orders"), "orders");
+        assert_eq!(leaf_name("projects/my-proj/subscriptions/sub-1"), "sub-1");
+        assert_eq!(leaf_name("orders"), "orders");
+        assert_eq!(leaf_name(""), "");
     }
 }

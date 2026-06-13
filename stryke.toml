@@ -18,9 +18,16 @@ exports = [
     "gcp__gcs_get_object",
     "gcp__gcs_put_object",
     "gcp__gcs_delete_object",
+    "gcp__gcs_head_object",
+    "gcp__gcs_copy_object",
     "gcp__pubsub_publish",
     "gcp__pubsub_pull",
     "gcp__pubsub_ack",
+    "gcp__pubsub_list_topics",
+    "gcp__pubsub_list_subscriptions",
+    "gcp__pubsub_create_topic",
+    "gcp__pubsub_create_subscription",
+    "gcp__secret_access",
 ]
 
 [scripts]

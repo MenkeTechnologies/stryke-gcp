@@ -55,9 +55,17 @@ fn GCP::Storage::put ($uri, %opts) {
     GCP::gcs_put_object($bucket, $key, $body, %opts)
 }
 
-## HEAD an object. Deferred in v0.2.0 (cdylib doesn't expose head_object yet).
+## Object metadata for a gs:// URI (size, content_type, updated, md5_hash, …).
 fn GCP::Storage::head ($uri, %opts) {
-    die "GCP::Storage::head: deferred in v0.2.0 cdylib — add gcp__gcs_head_object to the export list"
+    val ($bucket, $key) = GCP::Storage::_parse($uri)
+    GCP::gcs_head_object($bucket, $key, %opts)
+}
+
+## Server-side copy one gs:// URI to another.
+fn GCP::Storage::cp ($src_uri, $dst_uri, %opts) {
+    val ($sb, $sk) = GCP::Storage::_parse($src_uri)
+    val ($db, $dk) = GCP::Storage::_parse($dst_uri)
+    GCP::gcs_copy_object($sb, $sk, $db, $dk, %opts)
 }
 
 ## Delete an object.
