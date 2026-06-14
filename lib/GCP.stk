@@ -220,3 +220,33 @@ fn GCP::gcs_compose ($bucket, $destination, $sources, %opts) {
     GCP::_decode("gcs_compose", gcp__gcs_compose(to_json($r)))
 }
 
+# ── Firestore ────────────────────────────────────────────────────────
+
+## Get a Firestore document. Returns { collection, document, data, update_time };
+## data is undef when the document doesn't exist.
+fn GCP::firestore_get ($collection, $document, %opts) {
+    val $r = GCP::_req({ collection => $collection, document => $document }, \%opts)
+    GCP::_decode("firestore_get", gcp__firestore_get(to_json($r)))
+}
+
+## Create-or-overwrite a Firestore document with $data (a hashref). Field
+## values are auto-encoded to Firestore's typed format. Returns { ..., update_time }.
+fn GCP::firestore_set ($collection, $document, $data, %opts) {
+    die "GCP::firestore_set: data must be a hashref" unless ref($data) eq "HASH"
+    val $r = GCP::_req(
+        { collection => $collection, document => $document, data => $data }, \%opts)
+    GCP::_decode("firestore_set", gcp__firestore_set(to_json($r)))
+}
+
+## Delete a Firestore document. Returns { collection, document, deleted }.
+fn GCP::firestore_delete ($collection, $document, %opts) {
+    val $r = GCP::_req({ collection => $collection, document => $document }, \%opts)
+    GCP::_decode("firestore_delete", gcp__firestore_delete(to_json($r)))
+}
+
+## List documents in a $collection ({ id, data }). opt page_size (default 100).
+fn GCP::firestore_list ($collection, %opts) {
+    val $r = GCP::_req({ collection => $collection, page_size => $opts{page_size} }, \%opts)
+    @{ GCP::_decode("firestore_list", gcp__firestore_list(to_json($r)))->{documents} }
+}
+

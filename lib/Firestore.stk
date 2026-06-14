@@ -1,0 +1,29 @@
+## lib/Firestore.stk — `use GCP::Firestore`
+##
+## Wraps `GCP::firestore_*` from the cdylib (Firestore native-mode REST).
+## Field values cross as plain stryke data; the cdylib handles Firestore's
+## typed-value encoding both ways.
+
+package GCP::Firestore
+
+use GCP
+
+## Get a document; returns its data hashref, or undef when absent.
+fn GCP::Firestore::get ($collection, $document, %opts) {
+    GCP::firestore_get($collection, $document, %opts)->{data}
+}
+
+## Create-or-overwrite $document in $collection with $data (hashref).
+fn GCP::Firestore::set ($collection, $document, $data, %opts) {
+    GCP::firestore_set($collection, $document, $data, %opts)
+}
+
+## Delete a document.
+fn GCP::Firestore::delete ($collection, $document, %opts) {
+    GCP::firestore_delete($collection, $document, %opts)
+}
+
+## List documents in $collection as { id, data } hashrefs. opt page_size.
+fn GCP::Firestore::list ($collection, %opts) {
+    GCP::firestore_list($collection, %opts)
+}

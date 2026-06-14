@@ -35,6 +35,10 @@ exports = [
     "gcp__bigquery_query",
     "gcp__bigquery_insert",
     "gcp__gcs_compose",
+    "gcp__firestore_get",
+    "gcp__firestore_set",
+    "gcp__firestore_delete",
+    "gcp__firestore_list",
 ]
 
 [scripts]

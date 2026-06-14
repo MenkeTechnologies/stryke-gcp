@@ -841,6 +841,240 @@ async fn op_gcs_compose(opts: Value) -> Result<Value> {
     }))
 }
 
+// ── Firestore ─────────────────────────────────────────────────────────────────
+
+/// Encode a plain JSON value into Firestore's typed-value wire form
+/// (`{"stringValue": ...}`, `{"integerValue": "N"}`, etc.).
+fn fs_encode(v: &Value) -> Value {
+    match v {
+        Value::Null => json!({ "nullValue": null }),
+        Value::Bool(b) => json!({ "booleanValue": b }),
+        Value::Number(n) => {
+            if n.is_i64() || n.is_u64() {
+                // Firestore integers travel as strings.
+                json!({ "integerValue": n.to_string() })
+            } else {
+                json!({ "doubleValue": n.as_f64().unwrap_or(0.0) })
+            }
+        }
+        Value::String(s) => json!({ "stringValue": s }),
+        Value::Array(a) => {
+            json!({ "arrayValue": { "values": a.iter().map(fs_encode).collect::<Vec<_>>() } })
+        }
+        Value::Object(o) => {
+            let fields: serde_json::Map<String, Value> =
+                o.iter().map(|(k, v)| (k.clone(), fs_encode(v))).collect();
+            json!({ "mapValue": { "fields": fields } })
+        }
+    }
+}
+
+/// Decode a Firestore typed value back to plain JSON.
+fn fs_decode(v: &Value) -> Value {
+    let obj = match v.as_object() {
+        Some(o) => o,
+        None => return Value::Null,
+    };
+    if let Some(s) = obj.get("stringValue") {
+        return s.clone();
+    }
+    if let Some(s) = obj.get("integerValue") {
+        return s
+            .as_str()
+            .and_then(|x| x.parse::<i64>().ok())
+            .map(|n| json!(n))
+            .unwrap_or_else(|| s.clone());
+    }
+    if let Some(d) = obj.get("doubleValue") {
+        return d.clone();
+    }
+    if let Some(b) = obj.get("booleanValue") {
+        return b.clone();
+    }
+    if obj.contains_key("nullValue") {
+        return Value::Null;
+    }
+    if let Some(ts) = obj.get("timestampValue") {
+        return ts.clone();
+    }
+    if let Some(rv) = obj.get("referenceValue") {
+        return rv.clone();
+    }
+    if let Some(av) = obj.get("arrayValue") {
+        let vals = av
+            .get("values")
+            .and_then(|x| x.as_array())
+            .cloned()
+            .unwrap_or_default();
+        return Value::Array(vals.iter().map(fs_decode).collect());
+    }
+    if let Some(mv) = obj.get("mapValue") {
+        let m: serde_json::Map<String, Value> = mv
+            .get("fields")
+            .and_then(|x| x.as_object())
+            .map(|f| f.iter().map(|(k, v)| (k.clone(), fs_decode(v))).collect())
+            .unwrap_or_default();
+        return Value::Object(m);
+    }
+    Value::Null
+}
+
+/// Encode a `{field: value, ...}` object into Firestore `fields`.
+fn fs_fields_encode(data: &Value) -> Value {
+    let m: serde_json::Map<String, Value> = data
+        .as_object()
+        .map(|o| o.iter().map(|(k, v)| (k.clone(), fs_encode(v))).collect())
+        .unwrap_or_default();
+    Value::Object(m)
+}
+
+/// Decode a Firestore document's `fields` back into a plain object.
+fn fs_fields_decode(fields: &Value) -> Value {
+    let m: serde_json::Map<String, Value> = fields
+        .as_object()
+        .map(|o| o.iter().map(|(k, v)| (k.clone(), fs_decode(v))).collect())
+        .unwrap_or_default();
+    Value::Object(m)
+}
+
+fn fs_base(project: &str) -> String {
+    format!(
+        "https://firestore.googleapis.com/v1/projects/{}/databases/(default)/documents",
+        urlencoding::encode(project)
+    )
+}
+
+async fn op_firestore_get(opts: Value) -> Result<Value> {
+    let project = resolve_project(&opts).ok_or_else(|| anyhow!("missing project"))?;
+    let collection = opts["collection"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing collection"))?;
+    let document = opts["document"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing document"))?;
+    let token = auth_header().await?;
+    let url = format!(
+        "{}/{}/{}",
+        fs_base(&project),
+        urlencoding::encode(collection),
+        urlencoding::encode(document)
+    );
+    let resp = client()
+        .get(&url)
+        .header("Authorization", token)
+        .send()
+        .await?;
+    if resp.status().as_u16() == 404 {
+        return Ok(json!({ "collection": collection, "document": document, "data": Value::Null }));
+    }
+    let body: Value = resp.error_for_status()?.json().await?;
+    Ok(json!({
+        "collection": collection,
+        "document": document,
+        "data": fs_fields_decode(&body["fields"]),
+        "update_time": body["updateTime"].clone(),
+    }))
+}
+
+async fn op_firestore_set(opts: Value) -> Result<Value> {
+    let project = resolve_project(&opts).ok_or_else(|| anyhow!("missing project"))?;
+    let collection = opts["collection"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing collection"))?;
+    let document = opts["document"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing document"))?;
+    let data = opts
+        .get("data")
+        .filter(|d| d.is_object())
+        .ok_or_else(|| anyhow!("missing data (an object)"))?;
+    let token = auth_header().await?;
+    // PATCH creates-or-overwrites the document with the supplied fields.
+    let url = format!(
+        "{}/{}/{}",
+        fs_base(&project),
+        urlencoding::encode(collection),
+        urlencoding::encode(document)
+    );
+    let body = json!({ "fields": fs_fields_encode(data) });
+    let resp = client()
+        .patch(&url)
+        .header("Authorization", token)
+        .json(&body)
+        .send()
+        .await?
+        .error_for_status()?;
+    let info: Value = resp.json().await?;
+    Ok(json!({
+        "collection": collection,
+        "document": document,
+        "update_time": info["updateTime"].clone(),
+    }))
+}
+
+async fn op_firestore_delete(opts: Value) -> Result<Value> {
+    let project = resolve_project(&opts).ok_or_else(|| anyhow!("missing project"))?;
+    let collection = opts["collection"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing collection"))?;
+    let document = opts["document"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing document"))?;
+    let token = auth_header().await?;
+    let url = format!(
+        "{}/{}/{}",
+        fs_base(&project),
+        urlencoding::encode(collection),
+        urlencoding::encode(document)
+    );
+    client()
+        .delete(&url)
+        .header("Authorization", token)
+        .send()
+        .await?
+        .error_for_status()?;
+    Ok(json!({ "collection": collection, "document": document, "deleted": true }))
+}
+
+async fn op_firestore_list(opts: Value) -> Result<Value> {
+    let project = resolve_project(&opts).ok_or_else(|| anyhow!("missing project"))?;
+    let collection = opts["collection"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing collection"))?;
+    let page_size = opts["page_size"].as_u64().unwrap_or(100);
+    let token = auth_header().await?;
+    let url = format!(
+        "{}/{}?pageSize={}",
+        fs_base(&project),
+        urlencoding::encode(collection),
+        page_size
+    );
+    let body: Value = client()
+        .get(&url)
+        .header("Authorization", token)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let docs: Vec<Value> = body["documents"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .map(|d| {
+                    // The document id is the last path segment of `name`.
+                    let id = d["name"]
+                        .as_str()
+                        .and_then(|n| n.rsplit('/').next())
+                        .unwrap_or("");
+                    json!({ "id": id, "data": fs_fields_decode(&d["fields"]) })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(json!({ "collection": collection, "documents": docs }))
+}
+
 // ── FFI plumbing ────────────────────────────────────────────────────────────
 
 fn ffi_call_async<F, Fut>(args: *const c_char, handler: F) -> *const c_char
@@ -1007,10 +1241,70 @@ pub extern "C" fn gcp__gcs_compose(args: *const c_char) -> *const c_char {
     ffi_call_async(args, op_gcs_compose)
 }
 
+#[no_mangle]
+pub extern "C" fn gcp__firestore_get(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_firestore_get)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__firestore_set(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_firestore_set)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__firestore_delete(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_firestore_delete)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__firestore_list(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_firestore_list)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::sync::Mutex;
+
+    /// Firestore's typed-value encoding is the load-bearing translation for the
+    /// Firestore ops — a wrong tag silently writes/reads the wrong type. Pin the
+    /// scalar mappings and that integers travel as strings (Firestore quirk).
+    #[test]
+    fn fs_encode_scalars_use_correct_typed_tags() {
+        assert_eq!(fs_encode(&json!("x")), json!({"stringValue": "x"}));
+        assert_eq!(fs_encode(&json!(7)), json!({"integerValue": "7"}));
+        assert_eq!(fs_encode(&json!(1.5)), json!({"doubleValue": 1.5}));
+        assert_eq!(fs_encode(&json!(true)), json!({"booleanValue": true}));
+        assert_eq!(fs_encode(&Value::Null), json!({"nullValue": null}));
+    }
+
+    /// A nested object/array round-trips through encode→decode unchanged
+    /// (including the integer-as-string normalization back to a JSON integer).
+    #[test]
+    fn fs_encode_decode_round_trips_nested() {
+        let original = json!({
+            "name": "ada",
+            "age": 36,
+            "scores": [1, 2.5, "z"],
+            "meta": { "active": true, "tags": ["x", "y"] },
+        });
+        let encoded = fs_encode(&original);
+        // Spot-check the wire shape is the Firestore mapValue form.
+        assert!(encoded["mapValue"]["fields"]["name"]["stringValue"] == json!("ada"));
+        assert!(encoded["mapValue"]["fields"]["age"]["integerValue"] == json!("36"));
+        // Full decode restores the original JSON.
+        assert_eq!(fs_decode(&encoded), original);
+    }
+
+    /// `fs_fields_encode`/`fs_fields_decode` operate on the document `fields`
+    /// map (not wrapped in mapValue) — pin that they're inverses.
+    #[test]
+    fn fs_fields_encode_decode_are_inverses() {
+        let data = json!({ "a": 1, "b": "two", "c": [true, null] });
+        let fields = fs_fields_encode(&data);
+        assert_eq!(fields["a"], json!({"integerValue": "1"}));
+        assert_eq!(fs_fields_decode(&fields), data);
+    }
 
     /// Env vars are process-global; serialize the resolve_project cases so
     /// parallel `cargo test` threads can't race on GOOGLE_CLOUD_PROJECT /

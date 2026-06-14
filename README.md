@@ -12,7 +12,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![stryke](https://img.shields.io/badge/stryke-package-cyan.svg)](https://github.com/MenkeTechnologies/strykelang)
 
-### `[GOOGLE CLOUD CLIENT FOR STRYKE // CLOUD STORAGE + PUB/SUB + SECRET MANAGER + BIGQUERY]`
+### `[GOOGLE CLOUD CLIENT FOR STRYKE // CLOUD STORAGE + PUB/SUB + SECRET MANAGER + BIGQUERY + FIRESTORE]`
 
 > *"GCP from the pipe."*
 
@@ -201,6 +201,19 @@ GCP::BigQuery::rows  $sql, %opts → @rows        # just the row hashrefs
 GCP::BigQuery::insert $dataset, $table, \@rows, %opts → { inserted, errors }  # streaming insert
 ```
 
+### `use GCP::Firestore`
+
+```stryke
+GCP::Firestore::get    $collection, $document, %opts → \%data | undef
+GCP::Firestore::set    $collection, $document, \%data, %opts → \%resp  # create-or-overwrite
+GCP::Firestore::delete $collection, $document, %opts → \%resp
+GCP::Firestore::list   $collection, %opts → @{ {id, data} }   # opt: page_size
+```
+
+Field values cross as plain stryke data; the cdylib handles Firestore's typed
+encoding (`stringValue`/`integerValue`/…) in both directions. Flat forms are
+`GCP::firestore_get` / `_set` / `_delete` / `_list`.
+
 `use GCP::Storage` also gains `GCP::Storage::compose($bucket, $dst, \@sources)`
 (concatenate objects) — flat form `GCP::gcs_compose`.
 
@@ -272,6 +285,7 @@ stryke-gcp/
     Storage.stk                    # `use GCP::Storage`
     PubSub.stk                     # `use GCP::PubSub`
     BigQuery.stk                   # `use GCP::BigQuery`
+    Firestore.stk                  # `use GCP::Firestore`
   t/
     test_gcp.stk                   # end-to-end (gated on ADC + opt-in env vars)
     test_stryke_gcp_surface.stk    # wrapper-completeness pin

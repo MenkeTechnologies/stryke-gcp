@@ -18,6 +18,7 @@ use GCP
 use GCP::PubSub
 use GCP::Storage
 use GCP::BigQuery
+use GCP::Firestore
 
 # ── GCP.stk ──────────────────────────────────────────────
 assert_ok exists &GCP::version, "GCP::version exists"
@@ -73,5 +74,14 @@ assert_ok exists &GCP::bigquery_insert, "GCP::bigquery_insert exists"
 assert_ok exists &GCP::gcs_compose, "GCP::gcs_compose exists"
 assert_ok exists &GCP::BigQuery::insert, "GCP::BigQuery::insert exists"
 assert_ok exists &GCP::Storage::compose, "GCP::Storage::compose exists"
+
+assert_ok exists &GCP::firestore_get, "GCP::firestore_get exists"
+assert_ok exists &GCP::firestore_set, "GCP::firestore_set exists"
+assert_ok exists &GCP::firestore_delete, "GCP::firestore_delete exists"
+assert_ok exists &GCP::firestore_list, "GCP::firestore_list exists"
+assert_ok exists &GCP::Firestore::get, "GCP::Firestore::get exists"
+assert_ok exists &GCP::Firestore::set, "GCP::Firestore::set exists"
+assert_ok exists &GCP::Firestore::delete, "GCP::Firestore::delete exists"
+assert_ok exists &GCP::Firestore::list, "GCP::Firestore::list exists"
 
 test_run
