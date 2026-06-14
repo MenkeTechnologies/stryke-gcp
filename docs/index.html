@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark light">
-  <meta name="description" content="stryke-gcp — GOOGLE CLOUD CLIENT FOR STRYKE // CLOUD STORAGE + PUB/SUB. Google Cloud client for stryke — Cloud Storage and Pub/Sub. Opt-in package, kept out of the stryke core binary so the daily-driver install stays slim.">
+  <meta name="description" content="stryke-gcp — GOOGLE CLOUD CLIENT FOR STRYKE // CLOUD STORAGE + PUB/SUB + SECRET MANAGER + BIGQUERY + FIRESTORE. Google Cloud client for stryke — Cloud Storage, Pub/Sub, Secret Manager, BigQuery, and Firestore. Opt-in package that ships as a Rust cdylib that stryke dlopens in-process on first `use GCP`.">
   <title>stryke-gcp — Documentation</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -86,7 +86,7 @@
             <span class="sep">/</span>
             <a href="https://github.com/MenkeTechnologies/MenkeTechnologiesMeta" target="_blank" rel="noopener noreferrer">Meta</a>
           </nav>
-          <p class="docs-build-line">stryke package · CLI launcher <code>gcp</code> · Rust helper <code>stryke-gcp-helper</code> · opt-in (kept out of stryke core)</p>
+          <p class="docs-build-line">stryke package · cdylib <code>libstryke_gcp.{dylib,so}</code> · dlopen'd in-process on <code>use GCP</code> · opt-in (kept out of stryke core)</p>
         </div>
         <div class="tutorial-toolbar">
           <button type="button" class="btn btn-secondary" id="btnTheme" title="Toggle light/dark">Theme</button>
@@ -108,56 +108,57 @@
 
     <main class="tutorial-main">
       <h2 class="tutorial-title"><span class="step-hash">&gt;_</span>STRYKE-GCP</h2>
-      <p class="tutorial-subtitle"><strong>GCP from the pipe.</strong> Google Cloud client for stryke &mdash; Cloud Storage and Pub/Sub. Opt-in package, kept out of the stryke core binary so the daily-driver install stays slim.</p>
+      <p class="tutorial-subtitle"><strong>GCP from the pipe.</strong> Google Cloud client for stryke &mdash; Cloud Storage, Pub/Sub, Secret Manager, BigQuery, and Firestore. Opt-in package, kept out of the stryke core binary so the daily-driver install stays slim; ships as a Rust cdylib that stryke <code>dlopen</code>s in-process on first <code>use GCP</code>.</p>
 
       <section class="tutorial-section">
         <h2>Install</h2>
-<pre># build the helper binary, install as a stryke package
+<pre># from a release (no rustc on the consumer machine)
+s pkg install -g github.com/MenkeTechnologies/stryke-gcp
+
+# from a local checkout
 cd ~/projects/stryke-gcp
-cargo build --release
-s pkg install -g .
+cargo build --release            # produces target/release/libstryke_gcp.{dylib,so}
+s pkg install -g .               # cdylib lands in ~/.stryke/store/gcp@&lt;version&gt;/
 
 # one-liner
-make install
-
-# verify
-gcp --help</pre>
-        <p>After install, <code>gcp --help</code> works from anywhere on PATH (assuming <code>~/.stryke/bin/</code> is on PATH). The stryke library is auto-discoverable to any project that depends on the package via <code>[deps] gcp = { path = "..." }</code> or, when published, by name.</p>
+make install</pre>
+        <p>The cdylib is dlopened in-process on first <code>use GCP</code> &mdash; no helper-binary fork per call. Any stryke script that declares <code>use GCP</code> (or a submodule like <code>use GCP::Storage</code>) resolves the package automatically.</p>
       </section>
 
       <section class="tutorial-section">
-        <h2>CLI: <code>gcp</code></h2>
+        <h2>Quick start: <code>use GCP</code></h2>
         <table class="example-tbl">
           <tbody>
-            <tr><td>list GCS buckets</td><td><code>gcp gcs ls</code></td></tr>
-            <tr><td>upload to GCS</td><td><code>gcp gcs cp ./report.csv gs://my-bucket/reports/</code></td></tr>
-            <tr><td>publish to Pub/Sub</td><td><code>gcp pubsub publish my-topic '{"event":"login"}'</code></td></tr>
-            <tr><td>subscribe (stream NDJSON)</td><td><code>gcp pubsub subscribe my-sub --json</code></td></tr>
+            <tr><td>auth + project check</td><td><code>p to_json GCP::identity()</code></td></tr>
+            <tr><td>list GCS keys</td><td><code>my @entries = GCP::Storage::ls "gs://my-bucket/prefix/", delimiter =&gt; "/"</code></td></tr>
+            <tr><td>put an object</td><td><code>GCP::Storage::put "gs://my-bucket/hello.txt", data =&gt; "hello stryke", content_type =&gt; "text/plain"</code></td></tr>
+            <tr><td>get an object</td><td><code>p GCP::Storage::get "gs://my-bucket/hello.txt"</code></td></tr>
+            <tr><td>publish to Pub/Sub</td><td><code>GCP::PubSub::publish "my-topic", "event payload", attrs =&gt; { source =&gt; "stryke" }</code></td></tr>
+            <tr><td>pull from Pub/Sub</td><td><code>my @msgs = GCP::PubSub::pull "my-sub", max =&gt; 10, ack =&gt; 1</code></td></tr>
+            <tr><td>pump (pull → callback → ack)</td><td><code>GCP::PubSub::pump "my-sub", iterations =&gt; 5, callback =&gt; sub ($m) { handle_message $m-&gt;{data} }</code></td></tr>
           </tbody>
         </table>
-        <p>The full flag matrix lives in the <a href="https://github.com/MenkeTechnologies/stryke-gcp#0x03-cli-gcp">README "CLI" section</a>.</p>
+        <p>The full API lives in the <a href="https://github.com/MenkeTechnologies/stryke-gcp#0x05-api-reference">README "API reference" section</a>.</p>
       </section>
 
       <section class="tutorial-section">
         <h2>Why a package, not a builtin</h2>
-        <p>GCP client crates carry heavy gRPC + protobuf + auth chains. Opt-in keeps the core small.</p>
-        <p>The stryke side is a thin NDJSON-pipe wrapper; the heavy code lives in the <code>stryke-gcp-helper</code> sidecar binary and is loaded on demand. Core stryke is never linked against this package's deps.</p>
+        <p>GCP integration needs an auth chain (Application Default Credentials), a TLS HTTP client, and JSON serialization &mdash; fine to bundle once, opt-in. The cdylib talks to GCP's REST APIs directly via <code>reqwest</code> + <code>google-cloud-auth</code>.</p>
+        <p>The stryke side is a thin <code>.stk</code> wrapper that calls <code>gcp__*</code> FFI symbols on the cdylib; the heavy code lives in <code>libstryke_gcp.{dylib,so}</code>, dlopened in-process on first <code>use GCP</code>. Core stryke is never linked against this package's deps.</p>
       </section>
 
       <section class="tutorial-section">
-        <h2>Helper protocol</h2>
-        <p>The <code>stryke-gcp-helper</code> sidecar speaks newline-delimited JSON over stdin/stdout. The stryke library shells out per call and pipes structured data both ways. This keeps stryke startup small while making the package's surface area available on demand.</p>
-<pre># manual invocation (debugging only)
-echo '{"op":"version"}' | stryke-gcp-helper</pre>
+        <h2>FFI layer</h2>
+        <p>Each <code>GCP::*</code> wrapper builds a JSON args dict and calls a sibling <code>gcp__*</code> symbol resolved out of <code>libstryke_gcp.{dylib,so}</code>. The cdylib is dlopened in-process on first <code>use GCP</code>; a shared tokio runtime + <code>reqwest::Client</code> + cached ADC credentials are held in <code>OnceCell</code> &mdash; no fork-per-call, no re-running of ADC discovery / metadata-server / WIF / SA-file lookup on each call. Responses are JSON; errors come back as <code>{"error": "&lt;msg&gt;"}</code> and the wrapper <code>die</code>s with the message.</p>
       </section>
 
       <section class="tutorial-section">
         <h2>Layout</h2>
 <pre>stryke-gcp/
-&#9500;&#9472;&#9472; Cargo.toml             # bin = stryke-gcp-helper (publish = false)
+&#9500;&#9472;&#9472; Cargo.toml             # cdylib crate manifest (crate-type = ["cdylib"], publish = false)
 &#9500;&#9472;&#9472; src/
-&#9474;   &#9492;&#9472;&#9472; main.rs           # helper binary entry point
-&#9500;&#9472;&#9472; lib/                   # stryke .stk wrapper(s)
+&#9474;   &#9492;&#9472;&#9472; lib.rs            # cdylib — gcp__* extern "C" exports
+&#9500;&#9472;&#9472; lib/                   # stryke .stk wrapper(s) — `use GCP`, `use GCP::Storage`, …
 &#9500;&#9472;&#9472; stryke.toml            # stryke package manifest
 &#9500;&#9472;&#9472; t/                     # zunit-style tests
 &#9500;&#9472;&#9472; examples/              # runnable .stk examples
