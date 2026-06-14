@@ -79,3 +79,8 @@ fn GCP::Storage::buckets (%opts) {
     GCP::gcs_list_buckets(%opts)
 }
 
+## Compose (concatenate) $sources objects into $destination within $bucket.
+fn GCP::Storage::compose ($bucket, $destination, $sources, %opts) {
+    GCP::gcs_compose($bucket, $destination, $sources, %opts)
+}
+

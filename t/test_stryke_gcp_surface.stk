@@ -69,4 +69,9 @@ assert_ok exists &GCP::PubSub::delete_sub, "GCP::PubSub::delete_sub exists"
 assert_ok exists &GCP::BigQuery::query, "GCP::BigQuery::query exists"
 assert_ok exists &GCP::BigQuery::rows, "GCP::BigQuery::rows exists"
 
+assert_ok exists &GCP::bigquery_insert, "GCP::bigquery_insert exists"
+assert_ok exists &GCP::gcs_compose, "GCP::gcs_compose exists"
+assert_ok exists &GCP::BigQuery::insert, "GCP::BigQuery::insert exists"
+assert_ok exists &GCP::Storage::compose, "GCP::Storage::compose exists"
+
 test_run

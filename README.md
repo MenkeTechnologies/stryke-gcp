@@ -198,7 +198,11 @@ GCP::PubSub::pump         $sub, %opts → $count             # callback + auto-a
 GCP::BigQuery::query $sql, %opts → { columns, rows, total_rows, complete }
                                                 # opts: max_results, timeout_ms, project
 GCP::BigQuery::rows  $sql, %opts → @rows        # just the row hashrefs
+GCP::BigQuery::insert $dataset, $table, \@rows, %opts → { inserted, errors }  # streaming insert
 ```
+
+`use GCP::Storage` also gains `GCP::Storage::compose($bucket, $dst, \@sources)`
+(concatenate objects) — flat form `GCP::gcs_compose`.
 
 ### `use GCP` — Secret Manager
 

@@ -16,3 +16,8 @@ fn GCP::BigQuery::query ($sql, %opts) {
 fn GCP::BigQuery::rows ($sql, %opts) {
     @{ GCP::bigquery_query($sql, %opts)->{rows} }
 }
+
+## Stream-insert $rows (arrayref of hashrefs) into $dataset.$table.
+fn GCP::BigQuery::insert ($dataset, $table, $rows, %opts) {
+    GCP::bigquery_insert($dataset, $table, $rows, %opts)
+}

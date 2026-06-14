@@ -203,3 +203,20 @@ fn GCP::bigquery_query ($query, %opts) {
     GCP::_decode("bigquery_query", gcp__bigquery_query(to_json($r)))
 }
 
+## Stream-insert $rows (arrayref of hashrefs) into BigQuery $dataset.$table.
+## Returns { inserted, errors }.
+fn GCP::bigquery_insert ($dataset, $table, $rows, %opts) {
+    die "GCP::bigquery_insert: rows must be an arrayref" unless ref($rows) eq "ARRAY"
+    val $r = GCP::_req({ dataset => $dataset, table => $table, rows => $rows }, \%opts)
+    GCP::_decode("bigquery_insert", gcp__bigquery_insert(to_json($r)))
+}
+
+## Compose (concatenate) $sources GCS objects into $destination in $bucket.
+## Returns { bucket, object, size }.
+fn GCP::gcs_compose ($bucket, $destination, $sources, %opts) {
+    die "GCP::gcs_compose: sources must be an arrayref" unless ref($sources) eq "ARRAY"
+    val $r = GCP::_req(
+        { bucket => $bucket, destination => $destination, sources => $sources }, \%opts)
+    GCP::_decode("gcs_compose", gcp__gcs_compose(to_json($r)))
+}
+

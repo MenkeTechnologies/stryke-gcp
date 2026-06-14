@@ -769,6 +769,78 @@ async fn op_bigquery_query(opts: Value) -> Result<Value> {
     }))
 }
 
+/// Stream-insert rows into a BigQuery table (tabledata.insertAll). opts:
+/// dataset, table, rows (array of objects). Returns { inserted, errors }.
+async fn op_bigquery_insert(opts: Value) -> Result<Value> {
+    let project = resolve_project(&opts).ok_or_else(|| anyhow!("missing project"))?;
+    let dataset = opts["dataset"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing dataset"))?;
+    let table = opts["table"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing table"))?;
+    let rows = opts["rows"]
+        .as_array()
+        .ok_or_else(|| anyhow!("missing rows (an array of objects)"))?;
+    let token = auth_header().await?;
+    let url = format!(
+        "https://bigquery.googleapis.com/bigquery/v2/projects/{}/datasets/{}/tables/{}/insertAll",
+        urlencoding::encode(&project),
+        urlencoding::encode(dataset),
+        urlencoding::encode(table)
+    );
+    let body = json!({ "rows": rows.iter().map(|r| json!({"json": r})).collect::<Vec<_>>() });
+    let resp = client()
+        .post(&url)
+        .header("Authorization", token)
+        .json(&body)
+        .send()
+        .await?
+        .error_for_status()?;
+    let r: Value = resp.json().await?;
+    let errors = r.get("insertErrors").cloned().unwrap_or(Value::Null);
+    Ok(json!({ "inserted": rows.len(), "errors": errors }))
+}
+
+/// Compose (concatenate) GCS source objects into a single destination object.
+/// opts: bucket, destination, sources (array of object names).
+async fn op_gcs_compose(opts: Value) -> Result<Value> {
+    let bucket = opts["bucket"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing bucket"))?;
+    let destination = opts["destination"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing destination"))?;
+    let sources = opts["sources"]
+        .as_array()
+        .ok_or_else(|| anyhow!("missing sources (array of object names)"))?;
+    let token = auth_header().await?;
+    let url = format!(
+        "https://storage.googleapis.com/storage/v1/b/{}/o/{}/compose",
+        urlencoding::encode(bucket),
+        urlencoding::encode(destination)
+    );
+    let body = json!({
+        "sourceObjects": sources
+            .iter()
+            .filter_map(|s| s.as_str().map(|n| json!({ "name": n })))
+            .collect::<Vec<_>>()
+    });
+    let resp = client()
+        .post(&url)
+        .header("Authorization", token)
+        .json(&body)
+        .send()
+        .await?
+        .error_for_status()?;
+    let info: Value = resp.json().await?;
+    Ok(json!({
+        "bucket": bucket,
+        "object": info["name"].as_str().unwrap_or(destination),
+        "size": info["size"].clone(),
+    }))
+}
+
 // ── FFI plumbing ────────────────────────────────────────────────────────────
 
 fn ffi_call_async<F, Fut>(args: *const c_char, handler: F) -> *const c_char
@@ -923,6 +995,16 @@ pub extern "C" fn gcp__pubsub_delete_subscription(args: *const c_char) -> *const
 #[no_mangle]
 pub extern "C" fn gcp__bigquery_query(args: *const c_char) -> *const c_char {
     ffi_call_async(args, op_bigquery_query)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__bigquery_insert(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_bigquery_insert)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__gcs_compose(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_gcs_compose)
 }
 
 #[cfg(test)]
