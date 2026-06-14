@@ -16,9 +16,9 @@
 
 > *"GCP from the pipe."*
 
-Google Cloud client for stryke — Cloud Storage and Pub/Sub. Opt-in package
-tier, kept out of the stryke core binary so the daily-driver install stays
-slim.
+Google Cloud client for stryke — Cloud Storage, Pub/Sub, Secret Manager,
+BigQuery, and Firestore. Opt-in package tier, kept out of the stryke core
+binary so the daily-driver install stays slim.
 
 ### [`strykelang`](https://github.com/MenkeTechnologies/strykelang) &middot; [`MenkeTechnologiesMeta`](https://github.com/MenkeTechnologies/MenkeTechnologiesMeta) · [`stryke-aws`](https://github.com/MenkeTechnologies/stryke-aws) · [`stryke-k8s`](https://github.com/MenkeTechnologies/stryke-k8s) · [`stryke-demo`](https://github.com/MenkeTechnologies/stryke-demo)
 
@@ -57,13 +57,13 @@ crates currently impose.
 
 | Service | Status |
 |---|---|
-| Cloud Storage (GCS) | shipped — ls / get / put / rm / head / cp / buckets |
-| Pub/Sub | shipped — publish / pull / ack / list topics+subs / create topic+sub |
-| Secret Manager | shipped — access secret versions |
+| Cloud Storage (GCS) | shipped — ls / get / put / rm / head / cp / compose / buckets |
+| Pub/Sub | shipped — publish / pull / ack / list+create+delete topics+subs |
+| Secret Manager | shipped — access / create / add-version |
 | Auth identity | shipped — ADC + project resolution |
-| BigQuery | **deferred v2** — official Rust crate's dep tree (arrow-arith + chrono) has unresolved trait-method ambiguity; will revisit with a REST-only path. |
-| Firestore | **deferred v2** |
-| Cloud Functions / Run | **deferred v2** |
+| BigQuery | shipped — query (jobs.query) + streaming insert (REST-only path) |
+| Firestore | shipped — get / set / delete / list (native-mode REST) |
+| Cloud Functions / Run | **deferred** |
 
 ## [0x02] Install
 
@@ -90,8 +90,8 @@ make install
 The cdylib is dlopened in-process on first `use GCP`. A shared tokio
 runtime + `reqwest::Client` + cached ADC credentials are held in
 `OnceCell` — no fork-per-call, no re-running of ADC discovery /
-metadata-server / WIF / SA-file lookup. v0.2.1 covers GCS + Pub/Sub;
-BigQuery and the v1 helper's broader op set can be added incrementally.
+metadata-server / WIF / SA-file lookup. Covers GCS, Pub/Sub, Secret
+Manager, BigQuery, and Firestore; further services can be added incrementally.
 
 ## [0x03] Auth
 
