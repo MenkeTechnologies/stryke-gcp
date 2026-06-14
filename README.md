@@ -208,6 +208,8 @@ GCP::Firestore::get    $collection, $document, %opts → \%data | undef
 GCP::Firestore::set    $collection, $document, \%data, %opts → \%resp  # create-or-overwrite
 GCP::Firestore::delete $collection, $document, %opts → \%resp
 GCP::Firestore::list   $collection, %opts → @{ {id, data} }   # opt: page_size
+GCP::Firestore::query  $collection, %opts → @{ {id, data} }   # opts: field, op, value, limit
+GCP::Firestore::create $collection, \%data, %opts → { collection, id }  # auto-id; opt: document
 ```
 
 Field values cross as plain stryke data; the cdylib handles Firestore's typed

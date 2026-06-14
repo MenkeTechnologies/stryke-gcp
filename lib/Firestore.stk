@@ -27,3 +27,13 @@ fn GCP::Firestore::delete ($collection, $document, %opts) {
 fn GCP::Firestore::list ($collection, %opts) {
     GCP::firestore_list($collection, %opts)
 }
+
+## Query $collection with a field filter. opts: field, op, value, limit.
+fn GCP::Firestore::query ($collection, %opts) {
+    GCP::firestore_query($collection, %opts)
+}
+
+## Create a document (auto-id, or opt document => "id"). Returns { collection, id }.
+fn GCP::Firestore::create ($collection, $data, %opts) {
+    GCP::firestore_create($collection, $data, %opts)
+}

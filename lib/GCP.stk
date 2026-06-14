@@ -250,3 +250,22 @@ fn GCP::firestore_list ($collection, %opts) {
     @{ GCP::_decode("firestore_list", gcp__firestore_list(to_json($r)))->{documents} }
 }
 
+## Query a $collection with an optional single field filter. opts: field, op
+## (==, !=, <, <=, >, >=, in, array_contains; default ==), value, limit.
+## Returns matching { id, data } documents.
+fn GCP::firestore_query ($collection, %opts) {
+    val $r = GCP::_req(
+        { collection => $collection, field => $opts{field}, op => $opts{op},
+          value => $opts{value}, limit => $opts{limit} }, \%opts)
+    @{ GCP::_decode("firestore_query", gcp__firestore_query(to_json($r)))->{documents} }
+}
+
+## Create a document in $collection with $data (hashref). opt `document` sets
+## the id; otherwise Firestore auto-generates one. Returns { collection, id }.
+fn GCP::firestore_create ($collection, $data, %opts) {
+    die "GCP::firestore_create: data must be a hashref" unless ref($data) eq "HASH"
+    val $r = GCP::_req(
+        { collection => $collection, data => $data, document => $opts{document} }, \%opts)
+    GCP::_decode("firestore_create", gcp__firestore_create(to_json($r)))
+}
+

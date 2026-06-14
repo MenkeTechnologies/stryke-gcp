@@ -84,4 +84,9 @@ assert_ok exists &GCP::Firestore::set, "GCP::Firestore::set exists"
 assert_ok exists &GCP::Firestore::delete, "GCP::Firestore::delete exists"
 assert_ok exists &GCP::Firestore::list, "GCP::Firestore::list exists"
 
+assert_ok exists &GCP::firestore_query, "GCP::firestore_query exists"
+assert_ok exists &GCP::firestore_create, "GCP::firestore_create exists"
+assert_ok exists &GCP::Firestore::query, "GCP::Firestore::query exists"
+assert_ok exists &GCP::Firestore::create, "GCP::Firestore::create exists"
+
 test_run

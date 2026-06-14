@@ -39,6 +39,8 @@ exports = [
     "gcp__firestore_set",
     "gcp__firestore_delete",
     "gcp__firestore_list",
+    "gcp__firestore_query",
+    "gcp__firestore_create",
 ]
 
 [scripts]

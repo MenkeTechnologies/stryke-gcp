@@ -1075,6 +1075,103 @@ async fn op_firestore_list(opts: Value) -> Result<Value> {
     Ok(json!({ "collection": collection, "documents": docs }))
 }
 
+/// Normalize a caller operator to a Firestore `fieldFilter` op name.
+fn fs_op(op: &str) -> &'static str {
+    match op {
+        "==" | "EQUAL" | "eq" => "EQUAL",
+        "!=" | "NOT_EQUAL" | "ne" => "NOT_EQUAL",
+        "<" | "LESS_THAN" | "lt" => "LESS_THAN",
+        "<=" | "LESS_THAN_OR_EQUAL" | "le" => "LESS_THAN_OR_EQUAL",
+        ">" | "GREATER_THAN" | "gt" => "GREATER_THAN",
+        ">=" | "GREATER_THAN_OR_EQUAL" | "ge" => "GREATER_THAN_OR_EQUAL",
+        "in" | "IN" => "IN",
+        "array_contains" | "ARRAY_CONTAINS" => "ARRAY_CONTAINS",
+        _ => "EQUAL",
+    }
+}
+
+async fn op_firestore_query(opts: Value) -> Result<Value> {
+    let project = resolve_project(&opts).ok_or_else(|| anyhow!("missing project"))?;
+    let collection = opts["collection"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing collection"))?;
+    let token = auth_header().await?;
+    let mut sq = json!({ "from": [{ "collectionId": collection }] });
+    // Optional single field filter: { field, op, value }.
+    if let Some(field) = opts["field"].as_str() {
+        let op = fs_op(opts["op"].as_str().unwrap_or("EQUAL"));
+        sq["where"] = json!({
+            "fieldFilter": {
+                "field": { "fieldPath": field },
+                "op": op,
+                "value": fs_encode(opts.get("value").unwrap_or(&Value::Null)),
+            }
+        });
+    }
+    if let Some(n) = opts["limit"].as_i64() {
+        sq["limit"] = json!(n);
+    }
+    let url = format!("{}:runQuery", fs_base(&project));
+    let body: Value = client()
+        .post(&url)
+        .header("Authorization", token)
+        .json(&json!({ "structuredQuery": sq }))
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    // runQuery returns a stream array; keep the entries that carry a document.
+    let docs: Vec<Value> = body
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|e| {
+                    let d = e.get("document")?;
+                    let id = d["name"]
+                        .as_str()
+                        .and_then(|n| n.rsplit('/').next())
+                        .unwrap_or("");
+                    Some(json!({ "id": id, "data": fs_fields_decode(&d["fields"]) }))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(json!({ "collection": collection, "documents": docs }))
+}
+
+async fn op_firestore_create(opts: Value) -> Result<Value> {
+    let project = resolve_project(&opts).ok_or_else(|| anyhow!("missing project"))?;
+    let collection = opts["collection"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing collection"))?;
+    let data = opts
+        .get("data")
+        .filter(|d| d.is_object())
+        .ok_or_else(|| anyhow!("missing data (an object)"))?;
+    let token = auth_header().await?;
+    // POST to the collection; Firestore auto-generates the id unless documentId given.
+    let mut url = format!("{}/{}", fs_base(&project), urlencoding::encode(collection));
+    if let Some(id) = opts["document"].as_str() {
+        url.push_str(&format!("?documentId={}", urlencoding::encode(id)));
+    }
+    let body = json!({ "fields": fs_fields_encode(data) });
+    let info: Value = client()
+        .post(&url)
+        .header("Authorization", token)
+        .json(&body)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let id = info["name"]
+        .as_str()
+        .and_then(|n| n.rsplit('/').next())
+        .unwrap_or("");
+    Ok(json!({ "collection": collection, "id": id }))
+}
+
 // ── FFI plumbing ────────────────────────────────────────────────────────────
 
 fn ffi_call_async<F, Fut>(args: *const c_char, handler: F) -> *const c_char
@@ -1259,6 +1356,16 @@ pub extern "C" fn gcp__firestore_delete(args: *const c_char) -> *const c_char {
 #[no_mangle]
 pub extern "C" fn gcp__firestore_list(args: *const c_char) -> *const c_char {
     ffi_call_async(args, op_firestore_list)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__firestore_query(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_firestore_query)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__firestore_create(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_firestore_create)
 }
 
 #[cfg(test)]
