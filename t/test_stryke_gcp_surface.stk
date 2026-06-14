@@ -17,6 +17,7 @@
 use GCP
 use GCP::PubSub
 use GCP::Storage
+use GCP::BigQuery
 
 # ── GCP.stk ──────────────────────────────────────────────
 assert_ok exists &GCP::version, "GCP::version exists"
@@ -56,5 +57,16 @@ assert_ok exists &GCP::Storage::head, "GCP::Storage::head exists"
 assert_ok exists &GCP::Storage::cp, "GCP::Storage::cp exists"
 assert_ok exists &GCP::Storage::rm, "GCP::Storage::rm exists"
 assert_ok exists &GCP::Storage::buckets, "GCP::Storage::buckets exists"
+
+# ── GCP.stk extras: secrets, pubsub delete, bigquery ──
+assert_ok exists &GCP::secret_create, "GCP::secret_create exists"
+assert_ok exists &GCP::secret_add_version, "GCP::secret_add_version exists"
+assert_ok exists &GCP::pubsub_delete_topic, "GCP::pubsub_delete_topic exists"
+assert_ok exists &GCP::pubsub_delete_subscription, "GCP::pubsub_delete_subscription exists"
+assert_ok exists &GCP::bigquery_query, "GCP::bigquery_query exists"
+assert_ok exists &GCP::PubSub::delete_topic, "GCP::PubSub::delete_topic exists"
+assert_ok exists &GCP::PubSub::delete_sub, "GCP::PubSub::delete_sub exists"
+assert_ok exists &GCP::BigQuery::query, "GCP::BigQuery::query exists"
+assert_ok exists &GCP::BigQuery::rows, "GCP::BigQuery::rows exists"
 
 test_run

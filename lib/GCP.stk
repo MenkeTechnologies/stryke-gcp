@@ -171,3 +171,35 @@ fn GCP::secret_access ($secret, %opts) {
     GCP::_decode("secret_access", gcp__secret_access(to_json($r)))->{value}
 }
 
+## Create a new (empty) secret with automatic replication.
+fn GCP::secret_create ($secret, %opts) {
+    GCP::_decode("secret_create",
+        gcp__secret_create(to_json(GCP::_req({ secret => $secret }, \%opts))))
+}
+
+## Add a new version holding $value to $secret. Returns the version response.
+fn GCP::secret_add_version ($secret, $value, %opts) {
+    val $r = GCP::_req({ secret => $secret, value => $value }, \%opts)
+    GCP::_decode("secret_add_version", gcp__secret_add_version(to_json($r)))
+}
+
+## Delete a Pub/Sub topic.
+fn GCP::pubsub_delete_topic ($topic, %opts) {
+    GCP::_decode("pubsub_delete_topic",
+        gcp__pubsub_delete_topic(to_json(GCP::_req({ topic => $topic }, \%opts))))
+}
+
+## Delete a Pub/Sub subscription.
+fn GCP::pubsub_delete_subscription ($subscription, %opts) {
+    GCP::_decode("pubsub_delete_subscription",
+        gcp__pubsub_delete_subscription(to_json(GCP::_req({ subscription => $subscription }, \%opts))))
+}
+
+## Run a standard-SQL BigQuery query. opts: max_results, timeout_ms.
+## Returns { columns, rows, total_rows, complete }.
+fn GCP::bigquery_query ($query, %opts) {
+    val $r = GCP::_req(
+        { query => $query, max_results => $opts{max_results}, timeout_ms => $opts{timeout_ms} }, \%opts)
+    GCP::_decode("bigquery_query", gcp__bigquery_query(to_json($r)))
+}
+

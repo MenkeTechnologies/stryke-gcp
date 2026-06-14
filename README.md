@@ -12,7 +12,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![stryke](https://img.shields.io/badge/stryke-package-cyan.svg)](https://github.com/MenkeTechnologies/strykelang)
 
-### `[GOOGLE CLOUD CLIENT FOR STRYKE // CLOUD STORAGE + PUB/SUB]`
+### `[GOOGLE CLOUD CLIENT FOR STRYKE // CLOUD STORAGE + PUB/SUB + SECRET MANAGER + BIGQUERY]`
 
 > *"GCP from the pipe."*
 
@@ -187,13 +187,25 @@ GCP::PubSub::topics       %opts → @topic_names
 GCP::PubSub::subs         %opts → @{ {name, topic} }
 GCP::PubSub::create_topic $topic, %opts → \%resp
 GCP::PubSub::create_sub   $name, $topic, %opts → \%resp   # opts: ack_deadline
+GCP::PubSub::delete_topic $topic, %opts → \%resp
+GCP::PubSub::delete_sub   $sub, %opts → \%resp
 GCP::PubSub::pump         $sub, %opts → $count             # callback + auto-ack
+```
+
+### `use GCP::BigQuery`
+
+```stryke
+GCP::BigQuery::query $sql, %opts → { columns, rows, total_rows, complete }
+                                                # opts: max_results, timeout_ms, project
+GCP::BigQuery::rows  $sql, %opts → @rows        # just the row hashrefs
 ```
 
 ### `use GCP` — Secret Manager
 
 ```stryke
-GCP::secret_access  $secret, %opts → $value    # opts: version (default "latest")
+GCP::secret_access      $secret, %opts → $value    # opts: version (default "latest")
+GCP::secret_create      $secret, %opts → \%resp    # new empty secret, automatic replication
+GCP::secret_add_version $secret, $value, %opts → \%resp
 ```
 
 Topic / subscription names accept bare (`my-topic`) or fully qualified
@@ -255,6 +267,7 @@ stryke-gcp/
     GCP.stk                        # `use GCP` — plumbing + ping + identity
     Storage.stk                    # `use GCP::Storage`
     PubSub.stk                     # `use GCP::PubSub`
+    BigQuery.stk                   # `use GCP::BigQuery`
   t/
     test_gcp.stk                   # end-to-end (gated on ADC + opt-in env vars)
     test_stryke_gcp_surface.stk    # wrapper-completeness pin

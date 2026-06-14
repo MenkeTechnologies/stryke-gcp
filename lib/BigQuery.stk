@@ -1,0 +1,18 @@
+## lib/BigQuery.stk — `use GCP::BigQuery`
+##
+## Wraps `GCP::bigquery_query` from the cdylib (standard-SQL jobs.query).
+
+package GCP::BigQuery
+
+use GCP
+
+## Run a standard-SQL query; returns { columns, rows, total_rows, complete }.
+## opts: max_results, timeout_ms, project.
+fn GCP::BigQuery::query ($sql, %opts) {
+    GCP::bigquery_query($sql, %opts)
+}
+
+## Convenience: run a query and return just the rows (array of hashrefs).
+fn GCP::BigQuery::rows ($sql, %opts) {
+    @{ GCP::bigquery_query($sql, %opts)->{rows} }
+}

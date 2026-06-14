@@ -611,6 +611,164 @@ async fn op_secret_access(opts: Value) -> Result<Value> {
     Ok(json!({"secret": secret, "version": version, "value": value}))
 }
 
+/// Create a new secret (no version yet) with automatic replication.
+async fn op_secret_create(opts: Value) -> Result<Value> {
+    let project = resolve_project(&opts).ok_or_else(|| anyhow!("missing project"))?;
+    let secret = opts["secret"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing secret"))?;
+    let token = auth_header().await?;
+    let url = format!(
+        "https://secretmanager.googleapis.com/v1/projects/{}/secrets?secretId={}",
+        urlencoding::encode(&project),
+        urlencoding::encode(secret)
+    );
+    let resp = client()
+        .post(&url)
+        .header("Authorization", token)
+        .json(&json!({"replication": {"automatic": {}}}))
+        .send()
+        .await?
+        .error_for_status()?;
+    let info: Value = resp.json().await?;
+    Ok(json!({"secret": leaf_name(info["name"].as_str().unwrap_or(secret)), "created": true}))
+}
+
+/// Add a new version holding `value` to an existing secret. Returns the version name.
+async fn op_secret_add_version(opts: Value) -> Result<Value> {
+    use base64::Engine as _;
+    let project = resolve_project(&opts).ok_or_else(|| anyhow!("missing project"))?;
+    let secret = opts["secret"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing secret"))?;
+    let value = opts["value"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing value"))?;
+    let token = auth_header().await?;
+    let url = format!(
+        "https://secretmanager.googleapis.com/v1/projects/{}/secrets/{}:addVersion",
+        urlencoding::encode(&project),
+        urlencoding::encode(secret)
+    );
+    let data = base64::engine::general_purpose::STANDARD.encode(value.as_bytes());
+    let resp = client()
+        .post(&url)
+        .header("Authorization", token)
+        .json(&json!({"payload": {"data": data}}))
+        .send()
+        .await?
+        .error_for_status()?;
+    let info: Value = resp.json().await?;
+    Ok(json!({"version": leaf_name(info["name"].as_str().unwrap_or("")), "added": true}))
+}
+
+/// Delete a Pub/Sub topic.
+async fn op_pubsub_delete_topic(opts: Value) -> Result<Value> {
+    let project = resolve_project(&opts).ok_or_else(|| anyhow!("missing project"))?;
+    let topic = opts["topic"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing topic"))?;
+    let token = auth_header().await?;
+    let url = format!(
+        "https://pubsub.googleapis.com/v1/projects/{}/topics/{}",
+        urlencoding::encode(&project),
+        urlencoding::encode(topic)
+    );
+    client()
+        .delete(&url)
+        .header("Authorization", token)
+        .send()
+        .await?
+        .error_for_status()?;
+    Ok(json!({"topic": topic, "deleted": true}))
+}
+
+/// Delete a Pub/Sub subscription.
+async fn op_pubsub_delete_subscription(opts: Value) -> Result<Value> {
+    let project = resolve_project(&opts).ok_or_else(|| anyhow!("missing project"))?;
+    let subscription = opts["subscription"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing subscription"))?;
+    let token = auth_header().await?;
+    let url = format!(
+        "https://pubsub.googleapis.com/v1/projects/{}/subscriptions/{}",
+        urlencoding::encode(&project),
+        urlencoding::encode(subscription)
+    );
+    client()
+        .delete(&url)
+        .header("Authorization", token)
+        .send()
+        .await?
+        .error_for_status()?;
+    Ok(json!({"subscription": subscription, "deleted": true}))
+}
+
+// ── BigQuery ──────────────────────────────────────────────────────────────────
+
+/// Run a standard-SQL query (jobs.query) and return the rows as objects keyed
+/// by the result schema's column names. opts: query (required), max_results,
+/// timeout_ms.
+async fn op_bigquery_query(opts: Value) -> Result<Value> {
+    let project = resolve_project(&opts).ok_or_else(|| anyhow!("missing project"))?;
+    let query = opts["query"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing query"))?;
+    let token = auth_header().await?;
+    let url = format!(
+        "https://bigquery.googleapis.com/bigquery/v2/projects/{}/queries",
+        urlencoding::encode(&project)
+    );
+    let mut body = json!({"query": query, "useLegacySql": false});
+    if let Some(n) = opts["max_results"].as_u64() {
+        body["maxResults"] = json!(n);
+    }
+    if let Some(ms) = opts["timeout_ms"].as_u64() {
+        body["timeoutMs"] = json!(ms);
+    }
+    let resp = client()
+        .post(&url)
+        .header("Authorization", token)
+        .json(&body)
+        .send()
+        .await?
+        .error_for_status()?;
+    let r: Value = resp.json().await?;
+    // Map each row's positional cells onto the schema's field names.
+    let fields: Vec<String> = r["schema"]["fields"]
+        .as_array()
+        .map(|fs| {
+            fs.iter()
+                .map(|f| f["name"].as_str().unwrap_or("").to_string())
+                .collect()
+        })
+        .unwrap_or_default();
+    let rows: Vec<Value> = r["rows"]
+        .as_array()
+        .map(|rows| {
+            rows.iter()
+                .map(|row| {
+                    let cells = row["f"].as_array().cloned().unwrap_or_default();
+                    let mut obj = serde_json::Map::new();
+                    for (i, name) in fields.iter().enumerate() {
+                        obj.insert(
+                            name.clone(),
+                            cells.get(i).map(|c| c["v"].clone()).unwrap_or(Value::Null),
+                        );
+                    }
+                    Value::Object(obj)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(json!({
+        "columns": fields,
+        "rows": rows,
+        "total_rows": r["totalRows"].clone(),
+        "complete": r["jobComplete"].as_bool().unwrap_or(true),
+    }))
+}
+
 // ── FFI plumbing ────────────────────────────────────────────────────────────
 
 fn ffi_call_async<F, Fut>(args: *const c_char, handler: F) -> *const c_char
@@ -740,6 +898,31 @@ pub extern "C" fn gcp__pubsub_create_subscription(args: *const c_char) -> *const
 #[no_mangle]
 pub extern "C" fn gcp__secret_access(args: *const c_char) -> *const c_char {
     ffi_call_async(args, op_secret_access)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__secret_create(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_secret_create)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__secret_add_version(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_secret_add_version)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__pubsub_delete_topic(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_pubsub_delete_topic)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__pubsub_delete_subscription(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_pubsub_delete_subscription)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__bigquery_query(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_bigquery_query)
 }
 
 #[cfg(test)]

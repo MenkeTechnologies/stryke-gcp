@@ -72,6 +72,16 @@ fn GCP::PubSub::create_sub ($name, $topic, %opts) {
     GCP::pubsub_create_subscription($name, $topic, %opts)
 }
 
+## Delete a topic by name.
+fn GCP::PubSub::delete_topic ($topic, %opts) {
+    GCP::pubsub_delete_topic($topic, %opts)
+}
+
+## Delete a subscription by name.
+fn GCP::PubSub::delete_sub ($subscription, %opts) {
+    GCP::pubsub_delete_subscription($subscription, %opts)
+}
+
 ## Convenience: pull → callback → ack each message. Returns count handled.
 fn GCP::PubSub::pump ($subscription, %opts) {
     die "GCP::PubSub::pump: callback => sub { … } is required" unless defined $opts{callback}
