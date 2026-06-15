@@ -292,6 +292,13 @@ fn GCP::gs_uri_to_url ($uri) {
     GCP::_decode("gs_uri_to_url", gcp__gs_uri_to_url(to_json({ uri => $uri })))
 }
 
+## Convert a GCS download URL (path-style or virtual-hosted-style) back to its
+## "gs://bucket/object" URI. Inverse of gs_uri_to_url. Returns a hashref
+## { uri, bucket, object }.
+fn GCP::url_to_gs_uri ($url) {
+    GCP::_decode("url_to_gs_uri", gcp__url_to_gs_uri(to_json({ url => $url })))
+}
+
 ## Parse a GCP resource name "collection/id/collection/id…" into a hashref
 ## { parts, pairs => { collection => id }, trailing }.
 fn GCP::parse_resource_name ($name) {

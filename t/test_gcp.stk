@@ -73,6 +73,14 @@ assert_eq $u2u->{url}, "https://storage.googleapis.com/my-bucket/path/to/file.js
 assert_eq $u2u->{object}, "path/to/file.json",                                       "gs_uri_to_url: object extracted"
 assert_eq GCP::gs_uri_to_url("gs://my-bucket")->{url}, "https://storage.googleapis.com/my-bucket", "gs_uri_to_url: bucket endpoint"
 
+# url_to_gs_uri: GCS download URL → gs:// URI (inverse of gs_uri_to_url).
+val $u2g = GCP::url_to_gs_uri("https://storage.googleapis.com/my-bucket/path/to/file.json")
+assert_eq $u2g->{uri}, "gs://my-bucket/path/to/file.json", "url_to_gs_uri: path-style → URI"
+assert_eq $u2g->{object}, "path/to/file.json",             "url_to_gs_uri: object extracted"
+assert_eq GCP::url_to_gs_uri("https://my-bucket.storage.googleapis.com/a/b.txt")->{uri}, "gs://my-bucket/a/b.txt", "url_to_gs_uri: virtual-hosted-style → URI"
+assert_eq GCP::url_to_gs_uri(GCP::gs_uri_to_url("gs://b/k")->{url})->{uri}, "gs://b/k", "url_to_gs_uri: round-trips gs_uri_to_url"
+assert_dies fn { GCP::url_to_gs_uri("https://example.com/b/k") }, "url_to_gs_uri: rejects non-GCS host"
+
 val $rn = GCP::parse_resource_name("projects/my-proj/topics/orders")
 assert_eq $rn->{pairs}{projects}, "my-proj", "parse_resource_name: project"
 assert_eq $rn->{pairs}{topics},   "orders",  "parse_resource_name: topic"

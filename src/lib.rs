@@ -1290,6 +1290,53 @@ fn op_gs_uri_to_url(opts: Value) -> Result<Value> {
     }))
 }
 
+/// Convert a GCS download URL back to its `gs://bucket/object` URI. Accepts both
+/// path-style `https://storage.googleapis.com/bucket/object` and
+/// virtual-hosted-style `https://bucket.storage.googleapis.com/object` (the
+/// `commondatastorage.googleapis.com` alias too). opts: url (required). Returns
+/// `{uri, bucket, object}`. Inverse of `gs_uri_to_url`. Pure.
+fn op_url_to_gs_uri(opts: Value) -> Result<Value> {
+    let url = opts
+        .get("url")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("missing url"))?;
+    let rest = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))
+        .ok_or_else(|| anyhow!("not an http(s) URL: {url}"))?;
+    const HOSTS: &[&str] = &["storage.googleapis.com", "commondatastorage.googleapis.com"];
+    let (host, path) = rest.split_once('/').unwrap_or((rest, ""));
+    let (bucket, object) = if HOSTS.contains(&host) {
+        // Path-style: host is the API host, bucket is the first path segment.
+        match path.split_once('/') {
+            Some((b, o)) if !o.is_empty() => (b.to_string(), Some(o.to_string())),
+            Some((b, _)) => (b.to_string(), None),
+            None => (path.to_string(), None),
+        }
+    } else if let Some(b) = HOSTS
+        .iter()
+        .find_map(|h| host.strip_suffix(&format!(".{h}")))
+    {
+        // Virtual-hosted-style: bucket is the host label, object is the path.
+        let obj = (!path.is_empty()).then(|| path.to_string());
+        (b.to_string(), obj)
+    } else {
+        return Err(anyhow!("not a GCS URL: {url}"));
+    };
+    if bucket.is_empty() {
+        return Err(anyhow!("GCS URL missing bucket: {url}"));
+    }
+    let uri = match &object {
+        Some(o) => format!("gs://{bucket}/{o}"),
+        None => format!("gs://{bucket}"),
+    };
+    Ok(json!({
+        "uri": uri,
+        "bucket": bucket,
+        "object": object.map(|o| json!(o)).unwrap_or(Value::Null),
+    }))
+}
+
 /// Parse a GCP resource name `collection/id/collection/id…` (e.g.
 /// `projects/p/topics/t`) into its `parts` plus a `pairs` map keyed by each
 /// collection segment. An odd trailing segment is returned as `trailing`. Pure.
@@ -1518,6 +1565,11 @@ pub extern "C" fn gcp__build_gs_uri(args: *const c_char) -> *const c_char {
 #[no_mangle]
 pub extern "C" fn gcp__gs_uri_to_url(args: *const c_char) -> *const c_char {
     ffi_call_async(args, |opts| async move { op_gs_uri_to_url(opts) })
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__url_to_gs_uri(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, |opts| async move { op_url_to_gs_uri(opts) })
 }
 
 #[no_mangle]
@@ -2160,6 +2212,44 @@ mod tests {
             json!("https://storage.googleapis.com/b")
         );
         assert!(op_gs_uri_to_url(json!({"uri": "s3://x/y"})).is_err());
+    }
+
+    #[test]
+    fn url_to_gs_uri_inverts_gs_uri_to_url() {
+        // Path-style URL → object URI.
+        let obj = op_url_to_gs_uri(
+            json!({"url": "https://storage.googleapis.com/my-bucket/path/to/file.json"}),
+        )
+        .unwrap();
+        assert_eq!(obj["uri"], json!("gs://my-bucket/path/to/file.json"));
+        assert_eq!(obj["bucket"], json!("my-bucket"));
+        assert_eq!(obj["object"], json!("path/to/file.json"));
+        // Virtual-hosted-style URL → same URI.
+        let vh =
+            op_url_to_gs_uri(json!({"url": "https://my-bucket.storage.googleapis.com/a/b.txt"}))
+                .unwrap();
+        assert_eq!(vh["uri"], json!("gs://my-bucket/a/b.txt"));
+        assert_eq!(vh["bucket"], json!("my-bucket"));
+        // commondatastorage alias, bucket-only.
+        assert_eq!(
+            op_url_to_gs_uri(json!({"url": "https://commondatastorage.googleapis.com/b"})).unwrap()
+                ["uri"],
+            json!("gs://b")
+        );
+        // Round-trips with gs_uri_to_url for path and bucket-only forms.
+        for uri in ["gs://b/k", "gs://b", "gs://my-bucket/deep/key.bin"] {
+            let url = op_gs_uri_to_url(json!({"uri": uri})).unwrap()["url"]
+                .as_str()
+                .unwrap()
+                .to_string();
+            assert_eq!(
+                op_url_to_gs_uri(json!({"url": url})).unwrap()["uri"],
+                json!(uri)
+            );
+        }
+        // Non-GCS host and non-http scheme reject.
+        assert!(op_url_to_gs_uri(json!({"url": "https://example.com/b/k"})).is_err());
+        assert!(op_url_to_gs_uri(json!({"url": "gs://b/k"})).is_err());
     }
 
     #[test]
