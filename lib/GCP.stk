@@ -305,6 +305,14 @@ fn GCP::parse_resource_name ($name) {
     GCP::_decode("parse_resource_name", gcp__parse_resource_name(to_json({ name => $name })))
 }
 
+## Assemble a GCP resource name from parts — inverse of parse_resource_name.
+## %opts: parts (flat arrayref, exact inverse) OR pairs (arrayref of
+## [collection, id] or { collection, id }) plus an optional trailing segment.
+## Returns the name string.
+fn GCP::build_resource_name (%opts) {
+    GCP::_decode("build_resource_name", gcp__build_resource_name(to_json(\%opts)))->{name}
+}
+
 ## Validate a GCS bucket name (3-63 chars of [a-z0-9-._], start/end
 ## alphanumeric, not an IP, no "goog" prefix, no "google"). Underscores are
 ## allowed (unlike S3). Returns { name, valid, reason }.

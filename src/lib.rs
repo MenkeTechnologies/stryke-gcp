@@ -1368,6 +1368,65 @@ fn op_parse_resource_name(opts: Value) -> Result<Value> {
     }))
 }
 
+/// Assemble a GCP resource name `collection/id/collection/id…` from parts — the
+/// inverse of `parse_resource_name`. Accepts either a flat `parts` array (the
+/// exact inverse of the parsed `parts`) or ordered `pairs` — each a
+/// `[collection, id]` array or `{collection, id}` object — plus an optional
+/// `trailing` segment. Segments must be non-empty and contain no `/`. Returns
+/// `{name}`. Pure.
+fn op_build_resource_name(opts: Value) -> Result<Value> {
+    let check = |s: &str| -> Result<String> {
+        if s.is_empty() || s.contains('/') {
+            return Err(anyhow!("invalid segment `{s}` (non-empty, no `/`)"));
+        }
+        Ok(s.to_string())
+    };
+    // Exact inverse: a flat `parts` list joined with `/`.
+    if let Some(parts) = opts.get("parts").and_then(Value::as_array) {
+        if parts.is_empty() {
+            return Err(anyhow!("parts must not be empty"));
+        }
+        let segs: Vec<String> = parts
+            .iter()
+            .map(|p| {
+                p.as_str()
+                    .ok_or_else(|| anyhow!("parts entries must be strings"))
+                    .and_then(check)
+            })
+            .collect::<Result<_>>()?;
+        return Ok(json!({ "name": segs.join("/") }));
+    }
+    // Ordered collection/id pairs plus an optional trailing segment.
+    let pairs = opts
+        .get("pairs")
+        .and_then(Value::as_array)
+        .ok_or_else(|| anyhow!("missing parts or pairs"))?;
+    let mut segs: Vec<String> = Vec::new();
+    for p in pairs {
+        let (c, id) = match p {
+            Value::Array(a) if a.len() == 2 => (a[0].as_str(), a[1].as_str()),
+            Value::Object(_) => (
+                p.get("collection").and_then(Value::as_str),
+                p.get("id").and_then(Value::as_str),
+            ),
+            _ => {
+                return Err(anyhow!(
+                    "each pair must be [collection, id] or {{collection, id}}"
+                ))
+            }
+        };
+        segs.push(check(c.ok_or_else(|| anyhow!("pair missing collection"))?)?);
+        segs.push(check(id.ok_or_else(|| anyhow!("pair missing id"))?)?);
+    }
+    if let Some(t) = opts.get("trailing").and_then(Value::as_str) {
+        segs.push(check(t)?);
+    }
+    if segs.is_empty() {
+        return Err(anyhow!("no segments to build"));
+    }
+    Ok(json!({ "name": segs.join("/") }))
+}
+
 /// Validate a GCS bucket name against Google's rules: 3–63 chars of
 /// `[a-z0-9-._]`, start/end alphanumeric, not an IPv4 literal, no `goog`
 /// prefix, no `google` substring. (Note: unlike S3, underscores are allowed.)
@@ -1575,6 +1634,11 @@ pub extern "C" fn gcp__url_to_gs_uri(args: *const c_char) -> *const c_char {
 #[no_mangle]
 pub extern "C" fn gcp__parse_resource_name(args: *const c_char) -> *const c_char {
     ffi_call_async(args, |opts| async move { op_parse_resource_name(opts) })
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__build_resource_name(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, |opts| async move { op_build_resource_name(opts) })
 }
 
 #[no_mangle]
@@ -2269,6 +2333,43 @@ mod tests {
         let odd = op_parse_resource_name(json!({"name": "projects/p/secrets"})).unwrap();
         assert_eq!(odd["pairs"]["projects"], json!("p"));
         assert_eq!(odd["trailing"], json!("secrets"));
+    }
+
+    #[test]
+    fn build_resource_name_inverts_parse_resource_name() {
+        // From a flat parts list — the exact inverse.
+        assert_eq!(
+            op_build_resource_name(json!({"parts": ["projects", "p", "topics", "t"]})).unwrap()
+                ["name"],
+            json!("projects/p/topics/t")
+        );
+        // From ordered pairs (arrays) plus a trailing segment.
+        assert_eq!(
+            op_build_resource_name(json!({
+                "pairs": [["projects", "p"], ["secrets", "s"]],
+                "trailing": "versions"
+            }))
+            .unwrap()["name"],
+            json!("projects/p/secrets/s/versions")
+        );
+        // Pairs as objects work too.
+        assert_eq!(
+            op_build_resource_name(json!({"pairs": [{"collection": "projects", "id": "p"}]}))
+                .unwrap()["name"],
+            json!("projects/p")
+        );
+        // Round-trips the parsed `parts` of any resource name.
+        for name in ["projects/p/topics/t", "projects/p/secrets", "buckets/b"] {
+            let parsed = op_parse_resource_name(json!({ "name": name })).unwrap();
+            let rebuilt = op_build_resource_name(json!({ "parts": parsed["parts"] })).unwrap()
+                ["name"]
+                .clone();
+            assert_eq!(rebuilt, json!(name), "round-trip for {name}");
+        }
+        // Empty parts, a `/`-bearing segment, and no input all error.
+        assert!(op_build_resource_name(json!({"parts": []})).is_err());
+        assert!(op_build_resource_name(json!({"parts": ["a/b", "c"]})).is_err());
+        assert!(op_build_resource_name(json!({})).is_err());
     }
 
     #[test]

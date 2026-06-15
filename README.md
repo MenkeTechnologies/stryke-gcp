@@ -169,6 +169,7 @@ GCP::build_gs_uri($b, $obj?)   → $uri        # bucket+object → gs:// URI; in
 GCP::gs_uri_to_url($uri)       → { url, bucket, object }   # gs://b/o → https://storage.googleapis.com/b/o
 GCP::url_to_gs_uri($url)       → { uri, bucket, object }   # GCS URL (path/virtual-hosted) → gs://b/o; inverse of gs_uri_to_url
 GCP::parse_resource_name($n)   → { parts, pairs:{collection=>id}, trailing }   # projects/p/topics/t
+GCP::build_resource_name(%opts) → $name   # { parts } or { pairs, trailing } → resource name; inverse of parse_resource_name
 GCP::valid_bucket_name($name)  → { name, valid, reason }   # GCS rules (underscores OK, no `goog`/`google`)
 ```
 
