@@ -320,3 +320,10 @@ fn GCP::valid_bucket_name ($name) {
     GCP::_decode("valid_bucket_name", gcp__valid_bucket_name(to_json({ name => $name })))
 }
 
+## Validate a GCP project ID: 6-30 chars of lowercase letters, digits, and
+## hyphens; must start with a lowercase letter and must not end with a hyphen.
+## Returns a hashref { id, valid, reason } (reason undef when valid).
+fn GCP::valid_project_id ($id) {
+    GCP::_decode("valid_project_id", gcp__valid_project_id(to_json({ id => $id })))
+}
+

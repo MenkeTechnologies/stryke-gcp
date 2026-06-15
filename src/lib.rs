@@ -1457,6 +1457,34 @@ fn op_valid_bucket_name(opts: Value) -> Result<Value> {
     Ok(json!({"name": name, "valid": reason.is_none(), "reason": reason}))
 }
 
+/// Validate a GCP project ID against Google's rules: 6–30 characters of
+/// lowercase letters, digits, and hyphens; must start with a lowercase letter
+/// and must not end with a hyphen. Distinct from a bucket name. Returns
+/// `{id, valid, reason}`. Pure.
+fn op_valid_project_id(opts: Value) -> Result<Value> {
+    let id = opts
+        .get("id")
+        .or_else(|| opts.get("project_id"))
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("missing id"))?;
+    let bytes = id.as_bytes();
+    let reason: Option<&str> = if id.len() < 6 || id.len() > 30 {
+        Some("must be 6-30 characters")
+    } else if !bytes[0].is_ascii_lowercase() {
+        Some("must start with a lowercase letter")
+    } else if id.ends_with('-') {
+        Some("must not end with a hyphen")
+    } else if !id
+        .bytes()
+        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+    {
+        Some("only lowercase letters, digits, and hyphens")
+    } else {
+        None
+    };
+    Ok(json!({"id": id, "valid": reason.is_none(), "reason": reason}))
+}
+
 // ── exports ─────────────────────────────────────────────────────────────────
 
 #[no_mangle]
@@ -1644,6 +1672,11 @@ pub extern "C" fn gcp__build_resource_name(args: *const c_char) -> *const c_char
 #[no_mangle]
 pub extern "C" fn gcp__valid_bucket_name(args: *const c_char) -> *const c_char {
     ffi_call_async(args, |opts| async move { op_valid_bucket_name(opts) })
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__valid_project_id(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, |opts| async move { op_valid_project_id(opts) })
 }
 
 #[cfg(test)]
@@ -2395,5 +2428,34 @@ mod tests {
                 v["reason"]
             );
         }
+    }
+
+    #[test]
+    fn valid_project_id_enforces_gcp_rules() {
+        let ok = |id: &str| {
+            op_valid_project_id(json!({ "id": id })).unwrap()["valid"]
+                .as_bool()
+                .unwrap()
+        };
+        assert!(ok("my-project-123"));
+        assert!(ok("abcdef"), "exactly 6 chars");
+        assert!(ok(&format!("a{}", "b".repeat(29))), "exactly 30 chars");
+        for (id, want) in [
+            ("short", "6-30"),
+            ("1starts-with-digit", "lowercase letter"),
+            ("Uppercase-id", "lowercase letter"),
+            ("ends-with-dash-", "end with a hyphen"),
+            ("has_underscore", "hyphens"),
+        ] {
+            let v = op_valid_project_id(json!({ "id": id })).unwrap();
+            assert_eq!(v["valid"], json!(false), "{id} should be invalid");
+            assert!(
+                v["reason"].as_str().unwrap().contains(want),
+                "{id}: reason `{}` should mention `{want}`",
+                v["reason"]
+            );
+        }
+        assert!(!ok(&"a".repeat(31)), "31 chars exceeds the max");
+        assert!(op_valid_project_id(json!({})).is_err());
     }
 }

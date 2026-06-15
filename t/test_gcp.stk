@@ -97,4 +97,15 @@ val $g = GCP::valid_bucket_name("goog-private")
 assert_eq $g->{valid}, 0, "valid_bucket_name: rejects goog prefix"
 assert_match qr/goog/, $g->{reason}, "valid_bucket_name: reason names the rule"
 
+# valid_project_id: GCP project ID rules.
+assert_ok GCP::valid_project_id("my-project-123")->{valid},  "valid_project_id: legal"
+assert_ok GCP::valid_project_id("abcdef")->{valid},          "valid_project_id: exactly 6 chars"
+assert_eq GCP::valid_project_id("short")->{valid}, 0,        "valid_project_id: under 6 chars fails"
+assert_eq GCP::valid_project_id("1starts")->{valid}, 0,      "valid_project_id: must start with a letter"
+assert_eq GCP::valid_project_id("Upper-case")->{valid}, 0,   "valid_project_id: rejects uppercase"
+val $pe = GCP::valid_project_id("ends-with-dash-")
+assert_eq $pe->{valid}, 0,                                   "valid_project_id: trailing hyphen fails"
+assert_match qr/hyphen/, $pe->{reason},                      "valid_project_id: reason names the rule"
+assert_eq GCP::valid_project_id("has_underscore")->{valid}, 0, "valid_project_id: underscore not allowed"
+
 test_run
