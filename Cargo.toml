@@ -1,6 +1,6 @@
 [package]
 name = "stryke-gcp"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 description = "Google Cloud cdylib for the stryke `gcp` package — dlopened in-process via stryke's FFI bridge"
 authors = ["MenkeTechnologies"]

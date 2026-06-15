@@ -285,6 +285,13 @@ fn GCP::build_gs_uri ($bucket, $object = undef) {
         gcp__build_gs_uri(to_json({ bucket => $bucket, object => $object })))->{uri}
 }
 
+## Convert a "gs://bucket/object" URI to its path-style public download URL
+## "https://storage.googleapis.com/bucket/object". Returns a hashref
+## { url, bucket, object }.
+fn GCP::gs_uri_to_url ($uri) {
+    GCP::_decode("gs_uri_to_url", gcp__gs_uri_to_url(to_json({ uri => $uri })))
+}
+
 ## Parse a GCP resource name "collection/id/collection/id…" into a hashref
 ## { parts, pairs => { collection => id }, trailing }.
 fn GCP::parse_resource_name ($name) {

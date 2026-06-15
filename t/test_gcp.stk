@@ -67,6 +67,12 @@ assert_eq GCP::build_gs_uri("my-bucket", "path/to/file.json"), "gs://my-bucket/p
 assert_eq GCP::build_gs_uri("my-bucket"), "gs://my-bucket", "build_gs_uri: bare bucket when object omitted"
 assert_eq GCP::build_gs_uri("my-bucket", "/leading"), "gs://my-bucket/leading", "build_gs_uri: trims leading slash on object"
 
+# gs_uri_to_url: gs:// URI → path-style public URL.
+val $u2u = GCP::gs_uri_to_url("gs://my-bucket/path/to/file.json")
+assert_eq $u2u->{url}, "https://storage.googleapis.com/my-bucket/path/to/file.json", "gs_uri_to_url: object URL"
+assert_eq $u2u->{object}, "path/to/file.json",                                       "gs_uri_to_url: object extracted"
+assert_eq GCP::gs_uri_to_url("gs://my-bucket")->{url}, "https://storage.googleapis.com/my-bucket", "gs_uri_to_url: bucket endpoint"
+
 val $rn = GCP::parse_resource_name("projects/my-proj/topics/orders")
 assert_eq $rn->{pairs}{projects}, "my-proj", "parse_resource_name: project"
 assert_eq $rn->{pairs}{topics},   "orders",  "parse_resource_name: topic"

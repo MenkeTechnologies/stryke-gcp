@@ -1260,6 +1260,36 @@ fn op_build_gs_uri(opts: Value) -> Result<Value> {
     Ok(json!({"uri": uri}))
 }
 
+/// Convert a `gs://bucket/object` URI to its path-style public download URL
+/// `https://storage.googleapis.com/bucket/object`. A bucket-only URI yields the
+/// bucket endpoint. opts: uri (required). Returns `{url, bucket, object}`. Pure.
+fn op_gs_uri_to_url(opts: Value) -> Result<Value> {
+    let uri = opts
+        .get("uri")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("missing uri"))?;
+    let rest = uri
+        .strip_prefix("gs://")
+        .ok_or_else(|| anyhow!("not a gs:// URI: {uri}"))?;
+    let (bucket, object) = match rest.split_once('/') {
+        Some((b, o)) if !o.is_empty() => (b, Some(o)),
+        Some((b, _)) => (b, None),
+        None => (rest, None),
+    };
+    if bucket.is_empty() {
+        return Err(anyhow!("gs URI missing bucket: {uri}"));
+    }
+    let url = match object {
+        Some(o) => format!("https://storage.googleapis.com/{bucket}/{o}"),
+        None => format!("https://storage.googleapis.com/{bucket}"),
+    };
+    Ok(json!({
+        "url": url,
+        "bucket": bucket,
+        "object": object.map(|o| json!(o)).unwrap_or(Value::Null),
+    }))
+}
+
 /// Parse a GCP resource name `collection/id/collection/id…` (e.g.
 /// `projects/p/topics/t`) into its `parts` plus a `pairs` map keyed by each
 /// collection segment. An odd trailing segment is returned as `trailing`. Pure.
@@ -1483,6 +1513,11 @@ pub extern "C" fn gcp__parse_gs_uri(args: *const c_char) -> *const c_char {
 #[no_mangle]
 pub extern "C" fn gcp__build_gs_uri(args: *const c_char) -> *const c_char {
     ffi_call_async(args, |opts| async move { op_build_gs_uri(opts) })
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__gs_uri_to_url(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, |opts| async move { op_gs_uri_to_url(opts) })
 }
 
 #[no_mangle]
@@ -2101,6 +2136,30 @@ mod tests {
             json!("gs://b/leading")
         );
         assert!(op_build_gs_uri(json!({"bucket": ""})).is_err());
+    }
+
+    #[test]
+    fn gs_uri_to_url_maps_to_path_style_public_url() {
+        let obj = op_gs_uri_to_url(json!({"uri": "gs://my-bucket/path/to/file.json"})).unwrap();
+        assert_eq!(
+            obj["url"],
+            json!("https://storage.googleapis.com/my-bucket/path/to/file.json")
+        );
+        assert_eq!(obj["bucket"], json!("my-bucket"));
+        assert_eq!(obj["object"], json!("path/to/file.json"));
+        // Bucket-only URI → bucket endpoint, null object.
+        let buck = op_gs_uri_to_url(json!({"uri": "gs://my-bucket"})).unwrap();
+        assert_eq!(
+            buck["url"],
+            json!("https://storage.googleapis.com/my-bucket")
+        );
+        assert_eq!(buck["object"], Value::Null);
+        // Trailing slash with no object is still the bucket endpoint.
+        assert_eq!(
+            op_gs_uri_to_url(json!({"uri": "gs://b/"})).unwrap()["url"],
+            json!("https://storage.googleapis.com/b")
+        );
+        assert!(op_gs_uri_to_url(json!({"uri": "s3://x/y"})).is_err());
     }
 
     #[test]
