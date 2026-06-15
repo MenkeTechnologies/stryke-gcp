@@ -1236,6 +1236,30 @@ fn op_parse_gs_uri(opts: Value) -> Result<Value> {
     Ok(json!({"bucket": bucket, "object": object}))
 }
 
+/// Build a `gs://bucket/object` URI from parts. opts: bucket (required), object
+/// (optional — omitted yields the bare `gs://bucket`). Leading slashes on the
+/// object are trimmed so callers can pass either `obj` or `/obj`. Inverse of
+/// `parse_gs_uri`. Pure.
+fn op_build_gs_uri(opts: Value) -> Result<Value> {
+    let bucket = opts
+        .get("bucket")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("missing bucket"))?;
+    if bucket.is_empty() {
+        return Err(anyhow!("bucket must not be empty"));
+    }
+    let object = opts
+        .get("object")
+        .and_then(Value::as_str)
+        .map(|o| o.trim_start_matches('/'))
+        .filter(|o| !o.is_empty());
+    let uri = match object {
+        Some(o) => format!("gs://{bucket}/{o}"),
+        None => format!("gs://{bucket}"),
+    };
+    Ok(json!({"uri": uri}))
+}
+
 /// Parse a GCP resource name `collection/id/collection/id…` (e.g.
 /// `projects/p/topics/t`) into its `parts` plus a `pairs` map keyed by each
 /// collection segment. An odd trailing segment is returned as `trailing`. Pure.
@@ -1454,6 +1478,11 @@ pub extern "C" fn gcp__firestore_create(args: *const c_char) -> *const c_char {
 #[no_mangle]
 pub extern "C" fn gcp__parse_gs_uri(args: *const c_char) -> *const c_char {
     ffi_call_async(args, |opts| async move { op_parse_gs_uri(opts) })
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__build_gs_uri(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, |opts| async move { op_build_gs_uri(opts) })
 }
 
 #[no_mangle]
@@ -2047,6 +2076,31 @@ mod tests {
         let bucket_only = op_parse_gs_uri(json!({"uri": "gs://my-bucket"})).unwrap();
         assert_eq!(bucket_only["object"], Value::Null);
         assert!(op_parse_gs_uri(json!({"uri": "s3://x/y"})).is_err());
+    }
+
+    #[test]
+    fn build_gs_uri_round_trips_through_parse() {
+        let built = op_build_gs_uri(json!({"bucket": "my-bucket", "object": "path/to/file.json"}))
+            .unwrap()["uri"]
+            .clone();
+        assert_eq!(built, json!("gs://my-bucket/path/to/file.json"));
+        let back = op_parse_gs_uri(json!({"uri": built})).unwrap();
+        assert_eq!(back["bucket"], json!("my-bucket"));
+        assert_eq!(back["object"], json!("path/to/file.json"));
+        // Bare bucket when object omitted or empty; leading slash trimmed.
+        assert_eq!(
+            op_build_gs_uri(json!({"bucket": "b"})).unwrap()["uri"],
+            json!("gs://b")
+        );
+        assert_eq!(
+            op_build_gs_uri(json!({"bucket": "b", "object": ""})).unwrap()["uri"],
+            json!("gs://b")
+        );
+        assert_eq!(
+            op_build_gs_uri(json!({"bucket": "b", "object": "/leading"})).unwrap()["uri"],
+            json!("gs://b/leading")
+        );
+        assert!(op_build_gs_uri(json!({"bucket": ""})).is_err());
     }
 
     #[test]

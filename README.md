@@ -165,6 +165,7 @@ Pure helpers — credential-free string parsing/validation:
 
 ```stryke
 GCP::parse_gs_uri($uri)        → { bucket, object }
+GCP::build_gs_uri($b, $obj?)   → $uri        # bucket+object → gs:// URI; inverse of parse_gs_uri
 GCP::parse_resource_name($n)   → { parts, pairs:{collection=>id}, trailing }   # projects/p/topics/t
 GCP::valid_bucket_name($name)  → { name, valid, reason }   # GCS rules (underscores OK, no `goog`/`google`)
 ```

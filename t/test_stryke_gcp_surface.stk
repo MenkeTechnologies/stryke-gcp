@@ -89,4 +89,10 @@ assert_ok exists &GCP::firestore_create, "GCP::firestore_create exists"
 assert_ok exists &GCP::Firestore::query, "GCP::Firestore::query exists"
 assert_ok exists &GCP::Firestore::create, "GCP::Firestore::create exists"
 
+# ── pure parse/build helpers ──
+assert_ok exists &GCP::parse_gs_uri, "GCP::parse_gs_uri exists"
+assert_ok exists &GCP::build_gs_uri, "GCP::build_gs_uri exists"
+assert_ok exists &GCP::parse_resource_name, "GCP::parse_resource_name exists"
+assert_ok exists &GCP::valid_bucket_name, "GCP::valid_bucket_name exists"
+
 test_run

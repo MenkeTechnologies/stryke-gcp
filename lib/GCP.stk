@@ -277,6 +277,14 @@ fn GCP::parse_gs_uri ($uri) {
     GCP::_decode("parse_gs_uri", gcp__parse_gs_uri(to_json({ uri => $uri })))
 }
 
+## Build a "gs://bucket/object" URI from parts. $object is optional; a bare
+## bucket yields "gs://bucket". Leading slashes on $object are trimmed. Inverse
+## of parse_gs_uri.
+fn GCP::build_gs_uri ($bucket, $object = undef) {
+    GCP::_decode("build_gs_uri",
+        gcp__build_gs_uri(to_json({ bucket => $bucket, object => $object })))->{uri}
+}
+
 ## Parse a GCP resource name "collection/id/collection/id…" into a hashref
 ## { parts, pairs => { collection => id }, trailing }.
 fn GCP::parse_resource_name ($name) {

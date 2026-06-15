@@ -62,6 +62,11 @@ assert_eq $gs->{bucket}, "my-bucket",         "parse_gs_uri: bucket"
 assert_eq $gs->{object}, "path/to/file.json", "parse_gs_uri: object"
 assert_ok !defined(GCP::parse_gs_uri("gs://only-bucket")->{object}), "parse_gs_uri: bucket-only object undef"
 
+# build_gs_uri: inverse of parse_gs_uri; bare bucket when object omitted.
+assert_eq GCP::build_gs_uri("my-bucket", "path/to/file.json"), "gs://my-bucket/path/to/file.json", "build_gs_uri: bucket+object"
+assert_eq GCP::build_gs_uri("my-bucket"), "gs://my-bucket", "build_gs_uri: bare bucket when object omitted"
+assert_eq GCP::build_gs_uri("my-bucket", "/leading"), "gs://my-bucket/leading", "build_gs_uri: trims leading slash on object"
+
 val $rn = GCP::parse_resource_name("projects/my-proj/topics/orders")
 assert_eq $rn->{pairs}{projects}, "my-proj", "parse_resource_name: project"
 assert_eq $rn->{pairs}{topics},   "orders",  "parse_resource_name: topic"
