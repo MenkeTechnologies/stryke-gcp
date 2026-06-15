@@ -161,6 +161,14 @@ Plumbing: `GCP::version()` (cdylib package version), `GCP::ping(%opts)`
 credentials_source }`, plus the flat `GCP::<service>_<op>` fns the
 namespaced wrappers below delegate to.
 
+Pure helpers — credential-free string parsing/validation:
+
+```stryke
+GCP::parse_gs_uri($uri)        → { bucket, object }
+GCP::parse_resource_name($n)   → { parts, pairs:{collection=>id}, trailing }   # projects/p/topics/t
+GCP::valid_bucket_name($name)  → { name, valid, reason }   # GCS rules (underscores OK, no `goog`/`google`)
+```
+
 ### `use GCP::Storage`
 
 ```stryke

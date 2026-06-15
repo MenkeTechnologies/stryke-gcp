@@ -1214,6 +1214,89 @@ pub unsafe extern "C" fn stryke_free_cstring(p: *mut c_char) {
     drop(CString::from_raw(p));
 }
 
+// ── pure helpers (no GCP) ────────────────────────────────────────────────────
+
+/// Parse a `gs://bucket/object` URI into `{bucket, object}` (object is null
+/// when only a bucket is given). Pure.
+fn op_parse_gs_uri(opts: Value) -> Result<Value> {
+    let uri = opts
+        .get("uri")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("missing uri"))?;
+    let rest = uri
+        .strip_prefix("gs://")
+        .ok_or_else(|| anyhow!("not a gs:// URI: {uri}"))?;
+    let (bucket, object) = match rest.split_once('/') {
+        Some((b, o)) => (b, json!(o)),
+        None => (rest, Value::Null),
+    };
+    if bucket.is_empty() {
+        return Err(anyhow!("gs URI missing bucket: {uri}"));
+    }
+    Ok(json!({"bucket": bucket, "object": object}))
+}
+
+/// Parse a GCP resource name `collection/id/collection/id…` (e.g.
+/// `projects/p/topics/t`) into its `parts` plus a `pairs` map keyed by each
+/// collection segment. An odd trailing segment is returned as `trailing`. Pure.
+fn op_parse_resource_name(opts: Value) -> Result<Value> {
+    let name = opts
+        .get("name")
+        .or_else(|| opts.get("resource"))
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("missing name"))?;
+    let parts: Vec<&str> = name.split('/').filter(|s| !s.is_empty()).collect();
+    if parts.is_empty() {
+        return Err(anyhow!("empty resource name"));
+    }
+    let mut pairs = serde_json::Map::new();
+    let mut i = 0;
+    while i + 1 < parts.len() {
+        pairs.insert(parts[i].to_string(), json!(parts[i + 1]));
+        i += 2;
+    }
+    let trailing = if parts.len() % 2 == 1 {
+        json!(parts[parts.len() - 1])
+    } else {
+        Value::Null
+    };
+    Ok(json!({
+        "parts": parts,
+        "pairs": Value::Object(pairs),
+        "trailing": trailing,
+    }))
+}
+
+/// Validate a GCS bucket name against Google's rules: 3–63 chars of
+/// `[a-z0-9-._]`, start/end alphanumeric, not an IPv4 literal, no `goog`
+/// prefix, no `google` substring. (Note: unlike S3, underscores are allowed.)
+/// Returns `{valid, reason}`. Pure.
+fn op_valid_bucket_name(opts: Value) -> Result<Value> {
+    let name = opts
+        .get("name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("missing name"))?;
+    let bytes = name.as_bytes();
+    let reason: Option<&str> = if name.len() < 3 || name.len() > 63 {
+        Some("must be 3-63 characters")
+    } else if !name.bytes().all(|b| {
+        b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_' || b == b'.'
+    }) {
+        Some("only lowercase letters, numbers, hyphens, underscores, and dots")
+    } else if !bytes[0].is_ascii_alphanumeric() || !bytes[bytes.len() - 1].is_ascii_alphanumeric() {
+        Some("must start and end with a letter or number")
+    } else if name.parse::<std::net::Ipv4Addr>().is_ok() {
+        Some("must not be formatted as an IP address")
+    } else if name.starts_with("goog") {
+        Some("must not begin with the `goog` prefix")
+    } else if name.contains("google") {
+        Some("must not contain `google`")
+    } else {
+        None
+    };
+    Ok(json!({"name": name, "valid": reason.is_none(), "reason": reason}))
+}
+
 // ── exports ─────────────────────────────────────────────────────────────────
 
 #[no_mangle]
@@ -1366,6 +1449,21 @@ pub extern "C" fn gcp__firestore_query(args: *const c_char) -> *const c_char {
 #[no_mangle]
 pub extern "C" fn gcp__firestore_create(args: *const c_char) -> *const c_char {
     ffi_call_async(args, op_firestore_create)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__parse_gs_uri(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, |opts| async move { op_parse_gs_uri(opts) })
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__parse_resource_name(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, |opts| async move { op_parse_resource_name(opts) })
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__valid_bucket_name(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, |opts| async move { op_valid_bucket_name(opts) })
 }
 
 #[cfg(test)]
@@ -1937,5 +2035,61 @@ mod tests {
         assert_eq!(leaf_name("projects/my-proj/subscriptions/sub-1"), "sub-1");
         assert_eq!(leaf_name("orders"), "orders");
         assert_eq!(leaf_name(""), "");
+    }
+
+    // ── pure helpers (no GCP) ────────────────────────────────────────────────
+
+    #[test]
+    fn parse_gs_uri_splits_bucket_and_object() {
+        let v = op_parse_gs_uri(json!({"uri": "gs://my-bucket/path/to/file.json"})).unwrap();
+        assert_eq!(v["bucket"], json!("my-bucket"));
+        assert_eq!(v["object"], json!("path/to/file.json"));
+        let bucket_only = op_parse_gs_uri(json!({"uri": "gs://my-bucket"})).unwrap();
+        assert_eq!(bucket_only["object"], Value::Null);
+        assert!(op_parse_gs_uri(json!({"uri": "s3://x/y"})).is_err());
+    }
+
+    #[test]
+    fn parse_resource_name_pairs_collections_with_ids() {
+        let v = op_parse_resource_name(json!({
+            "name": "projects/my-proj/topics/orders"
+        }))
+        .unwrap();
+        assert_eq!(v["pairs"]["projects"], json!("my-proj"));
+        assert_eq!(v["pairs"]["topics"], json!("orders"));
+        assert_eq!(
+            v["trailing"],
+            Value::Null,
+            "even path has no trailing segment"
+        );
+        // Odd path (a collection with no id) surfaces a trailing segment.
+        let odd = op_parse_resource_name(json!({"name": "projects/p/secrets"})).unwrap();
+        assert_eq!(odd["pairs"]["projects"], json!("p"));
+        assert_eq!(odd["trailing"], json!("secrets"));
+    }
+
+    #[test]
+    fn valid_bucket_name_enforces_gcs_rules() {
+        // Underscores are legal in GCS (unlike S3).
+        assert_eq!(
+            op_valid_bucket_name(json!({"name": "my_data.bucket-1"})).unwrap()["valid"],
+            json!(true)
+        );
+        for (name, want) in [
+            ("ab", "3-63"),
+            ("UPPER", "lowercase"),
+            ("-bad", "start and end"),
+            ("10.0.0.1", "IP address"),
+            ("goog-private", "goog"),
+            ("my-google-data", "google"),
+        ] {
+            let v = op_valid_bucket_name(json!({"name": name})).unwrap();
+            assert_eq!(v["valid"], json!(false), "{name} should be invalid");
+            assert!(
+                v["reason"].as_str().unwrap().contains(want),
+                "{name}: reason `{}` should mention `{want}`",
+                v["reason"]
+            );
+        }
     }
 }

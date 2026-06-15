@@ -269,3 +269,24 @@ fn GCP::firestore_create ($collection, $data, %opts) {
     GCP::_decode("firestore_create", gcp__firestore_create(to_json($r)))
 }
 
+# ── pure helpers (no GCP) ─────────────────────────────────────────────
+
+## Parse a "gs://bucket/object" URI into a hashref { bucket, object } (object
+## undef when only a bucket is given).
+fn GCP::parse_gs_uri ($uri) {
+    GCP::_decode("parse_gs_uri", gcp__parse_gs_uri(to_json({ uri => $uri })))
+}
+
+## Parse a GCP resource name "collection/id/collection/id…" into a hashref
+## { parts, pairs => { collection => id }, trailing }.
+fn GCP::parse_resource_name ($name) {
+    GCP::_decode("parse_resource_name", gcp__parse_resource_name(to_json({ name => $name })))
+}
+
+## Validate a GCS bucket name (3-63 chars of [a-z0-9-._], start/end
+## alphanumeric, not an IP, no "goog" prefix, no "google"). Underscores are
+## allowed (unlike S3). Returns { name, valid, reason }.
+fn GCP::valid_bucket_name ($name) {
+    GCP::_decode("valid_bucket_name", gcp__valid_bucket_name(to_json({ name => $name })))
+}
+

@@ -56,4 +56,20 @@ if ($alive) {
     }
 }
 
+# ── pure helpers (no GCP — always run) ───────────────────────────────
+val $gs = GCP::parse_gs_uri("gs://my-bucket/path/to/file.json")
+assert_eq $gs->{bucket}, "my-bucket",         "parse_gs_uri: bucket"
+assert_eq $gs->{object}, "path/to/file.json", "parse_gs_uri: object"
+assert_ok !defined(GCP::parse_gs_uri("gs://only-bucket")->{object}), "parse_gs_uri: bucket-only object undef"
+
+val $rn = GCP::parse_resource_name("projects/my-proj/topics/orders")
+assert_eq $rn->{pairs}{projects}, "my-proj", "parse_resource_name: project"
+assert_eq $rn->{pairs}{topics},   "orders",  "parse_resource_name: topic"
+assert_ok !defined($rn->{trailing}),         "parse_resource_name: even path no trailing"
+
+assert_ok GCP::valid_bucket_name("my_data.bucket-1")->{valid}, "valid_bucket_name: underscores legal in GCS"
+val $g = GCP::valid_bucket_name("goog-private")
+assert_eq $g->{valid}, 0, "valid_bucket_name: rejects goog prefix"
+assert_match qr/goog/, $g->{reason}, "valid_bucket_name: reason names the rule"
+
 test_run

@@ -1,6 +1,6 @@
 [package]
 name = "stryke-gcp"
-version = "0.2.1"
+version = "0.3.0"
 description = "Google Cloud client (GCS + Pub/Sub) for stryke. cdylib loaded in-process — persistent tokio runtime + reqwest client + ADC credentials cache. v0.2.0 focused subset."
 authors = ["MenkeTechnologies"]
 license = "MIT"
@@ -41,6 +41,9 @@ exports = [
     "gcp__firestore_list",
     "gcp__firestore_query",
     "gcp__firestore_create",
+    "gcp__parse_gs_uri",
+    "gcp__parse_resource_name",
+    "gcp__valid_bucket_name",
 ]
 
 [scripts]
