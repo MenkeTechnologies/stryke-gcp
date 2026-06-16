@@ -1509,6 +1509,44 @@ fn op_region_for_zone(opts: Value) -> Result<Value> {
     Ok(json!({"zone": zone, "region": region, "zone_letter": letter}))
 }
 
+/// Validate a GCP resource label `key`/`value` pair against the Resource Manager
+/// rules: a key is 1-63 characters, must start with a lowercase letter (or an
+/// international character), and contains only lowercase letters, digits, `_`,
+/// and `-`; a value is 0-63 characters of the same charset and may be empty.
+/// opts: `key` (required), `value` (optional, defaults to empty). Returns
+/// `{key, value, valid, reason}`. Pure.
+fn op_valid_label(opts: Value) -> Result<Value> {
+    let key = opts
+        .get("key")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("missing key"))?;
+    let value = opts.get("value").and_then(Value::as_str).unwrap_or("");
+    // International (non-ASCII) characters are allowed; only ASCII uppercase and
+    // ASCII punctuation outside `_-` are disallowed.
+    let char_ok = |c: char| {
+        c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-' || !c.is_ascii()
+    };
+    let start_ok = |c: char| c.is_ascii_lowercase() || !c.is_ascii();
+    let key_chars = key.chars().count();
+    let first = key.chars().next();
+    let reason: Option<&str> = if key.is_empty() {
+        Some("key must not be empty")
+    } else if key_chars > 63 {
+        Some("key must be at most 63 characters")
+    } else if !first.map(start_ok).unwrap_or(false) {
+        Some("key must start with a lowercase letter")
+    } else if !key.chars().all(char_ok) {
+        Some("key may contain only lowercase letters, digits, '_', and '-'")
+    } else if value.chars().count() > 63 {
+        Some("value must be at most 63 characters")
+    } else if !value.chars().all(char_ok) {
+        Some("value may contain only lowercase letters, digits, '_', and '-'")
+    } else {
+        None
+    };
+    Ok(json!({"key": key, "value": value, "valid": reason.is_none(), "reason": reason}))
+}
+
 // ── exports ─────────────────────────────────────────────────────────────────
 
 #[no_mangle]
@@ -1706,6 +1744,11 @@ pub extern "C" fn gcp__valid_project_id(args: *const c_char) -> *const c_char {
 #[no_mangle]
 pub extern "C" fn gcp__region_for_zone(args: *const c_char) -> *const c_char {
     ffi_call_async(args, |opts| async move { op_region_for_zone(opts) })
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__valid_label(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, |opts| async move { op_valid_label(opts) })
 }
 
 #[cfg(test)]
@@ -2507,5 +2550,50 @@ mod tests {
         assert!(op_region_for_zone(json!({"zone": "us-central1-ab"})).is_err());
         assert!(op_region_for_zone(json!({"zone": "us-central1-1"})).is_err());
         assert!(op_region_for_zone(json!({})).is_err());
+    }
+
+    #[test]
+    fn valid_label_enforces_resource_manager_rules() {
+        let chk = |k: &str, v: &str| op_valid_label(json!({"key": k, "value": v})).unwrap();
+        // Valid: lowercase, digits, _ and -, value may be empty.
+        assert_eq!(chk("env", "prod")["valid"], json!(true));
+        assert_eq!(chk("cost-center_1", "team-a_2")["valid"], json!(true));
+        assert_eq!(
+            chk("team", "")["valid"],
+            json!(true),
+            "empty value is allowed"
+        );
+        // Invalids with reason fragments.
+        for (k, v, want) in [
+            ("", "x", "key must not be empty"),
+            ("1env", "x", "start with a lowercase letter"),
+            ("Env", "x", "start with a lowercase letter"),
+            ("env.x", "x", "key may contain"),
+            ("env", "Prod", "value may contain"),
+            ("env", "a b", "value may contain"),
+        ] {
+            let r = op_valid_label(json!({"key": k, "value": v})).unwrap();
+            assert_eq!(r["valid"], json!(false), "`{k}`=`{v}` should be invalid");
+            assert!(
+                r["reason"].as_str().unwrap().contains(want),
+                "`{k}`=`{v}`: reason `{}` should mention `{want}`",
+                r["reason"]
+            );
+        }
+        // 63-char key is the max.
+        assert_eq!(
+            chk(&format!("a{}", "b".repeat(62)), "x")["valid"],
+            json!(true)
+        );
+        assert_eq!(
+            chk(&format!("a{}", "b".repeat(63)), "x")["valid"],
+            json!(false)
+        );
+        // Missing value defaults to empty (valid).
+        assert_eq!(
+            op_valid_label(json!({"key": "env"})).unwrap()["valid"],
+            json!(true)
+        );
+        assert!(op_valid_label(json!({})).is_err());
     }
 }

@@ -117,4 +117,12 @@ assert_eq GCP::region_for_zone("asia-northeast1-c")->{region}, "asia-northeast1"
 assert_dies fn { GCP::region_for_zone("uscentral1") },     "region_for_zone: rejects a zone with no hyphen"
 assert_dies fn { GCP::region_for_zone("us-central1-ab") }, "region_for_zone: rejects a multi-char suffix"
 
+# valid_label: GCP Resource Manager label key/value rules.
+assert_ok GCP::valid_label("env", "prod")->{valid},          "valid_label: lowercase key/value"
+assert_ok GCP::valid_label("cost-center_1", "team-a")->{valid}, "valid_label: dashes/underscores allowed"
+assert_ok GCP::valid_label("team", "")->{valid},             "valid_label: empty value allowed"
+assert_eq GCP::valid_label("1env", "x")->{valid}, 0,         "valid_label: key must start with a letter"
+assert_eq GCP::valid_label("Env", "x")->{valid}, 0,          "valid_label: key rejects uppercase"
+assert_eq GCP::valid_label("env", "Prod")->{valid}, 0,       "valid_label: value rejects uppercase"
+
 test_run

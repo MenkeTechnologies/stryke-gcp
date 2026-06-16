@@ -1,6 +1,6 @@
 [package]
 name = "stryke-gcp"
-version = "0.9.0"
+version = "0.10.0"
 description = "Google Cloud client (GCS + Pub/Sub) for stryke. cdylib loaded in-process — persistent tokio runtime + reqwest client + ADC credentials cache. v0.2.0 focused subset."
 authors = ["MenkeTechnologies"]
 license = "MIT"
@@ -50,6 +50,7 @@ exports = [
     "gcp__valid_bucket_name",
     "gcp__valid_project_id",
     "gcp__region_for_zone",
+    "gcp__valid_label",
 ]
 
 [scripts]

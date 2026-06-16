@@ -334,3 +334,11 @@ fn GCP::region_for_zone ($zone) {
     GCP::_decode("region_for_zone", gcp__region_for_zone(to_json({ zone => $zone })))
 }
 
+## Validate a GCP resource label $key/$value per Resource Manager rules: key is
+## 1-63 chars, starts with a lowercase letter, lowercase/digit/_/- only; value
+## is 0-63 chars of the same charset and may be empty. Returns a hashref
+## { key, value, valid, reason }.
+fn GCP::valid_label ($key, $value = "") {
+    GCP::_decode("valid_label", gcp__valid_label(to_json({ key => $key, value => $value })))
+}
+
