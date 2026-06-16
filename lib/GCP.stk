@@ -384,6 +384,14 @@ fn GCP::valid_service_account_id ($id) {
     GCP::_decode("valid_service_account_id", gcp__valid_service_account_id(to_json({ id => $id })))
 }
 
+## Validate a GCP Secret Manager secret ID ($id) per Create-a-secret: 1-255 chars
+## of letters (upper or lower case), numerals, hyphens and underscores — no
+## leading-letter or trailing-hyphen restriction (unlike a service-account ID).
+## Returns a hashref { id, valid, reason }.
+fn GCP::valid_secret_id ($id) {
+    GCP::_decode("valid_secret_id", gcp__valid_secret_id(to_json({ id => $id })))
+}
+
 ## Validate a BigQuery dataset ID ($id) per Google's naming rules: up to 1024
 ## chars of letters/digits/underscores only — no spaces or "-&@%" specials;
 ## case-sensitive (a leading underscore marks a hidden dataset). Returns a hashref

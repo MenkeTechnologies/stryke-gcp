@@ -105,6 +105,7 @@ assert_ok exists &GCP::region_for_zone, "GCP::region_for_zone exists"
 assert_ok exists &GCP::valid_label, "GCP::valid_label exists"
 assert_ok exists &GCP::valid_pubsub_id, "GCP::valid_pubsub_id exists"
 assert_ok exists &GCP::valid_service_account_id, "GCP::valid_service_account_id exists"
+assert_ok exists &GCP::valid_secret_id, "GCP::valid_secret_id exists"
 assert_ok exists &GCP::valid_dataset_id, "GCP::valid_dataset_id exists"
 assert_ok exists &GCP::valid_table_id, "GCP::valid_table_id exists"
 

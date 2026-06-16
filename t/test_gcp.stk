@@ -179,6 +179,15 @@ assert_eq GCP::valid_service_account_id("service-")->{valid}, 0,     "valid_serv
 assert_eq GCP::valid_service_account_id("My_Service")->{valid}, 0,   "valid_service_account_id: uppercase/underscore rejected"
 assert_dies fn { GCP::valid_service_account_id() }, "valid_service_account_id: dies on missing id"
 
+# valid_secret_id: Secret Manager rules (1-255 chars, letters/numerals/-/_, no leading/trailing rules).
+assert_ok GCP::valid_secret_id("my-Secret_1")->{valid},     "valid_secret_id: mixed case, hyphen, underscore"
+assert_ok GCP::valid_secret_id("-leading-ok")->{valid},     "valid_secret_id: no leading-letter restriction"
+assert_ok GCP::valid_secret_id("trailing-")->{valid},       "valid_secret_id: no trailing-hyphen restriction"
+assert_eq GCP::valid_secret_id("")->{valid}, 0,             "valid_secret_id: empty rejected"
+assert_eq GCP::valid_secret_id("a" x 256)->{valid}, 0,      "valid_secret_id: over 255 chars rejected"
+assert_eq GCP::valid_secret_id("dot.id")->{valid}, 0,       "valid_secret_id: a dot is not allowed"
+assert_dies fn { GCP::valid_secret_id() }, "valid_secret_id: dies on missing id"
+
 # valid_dataset_id: BigQuery dataset naming rules.
 assert_ok GCP::valid_dataset_id("my_dataset")->{valid},     "valid_dataset_id: letters/digits/underscores"
 assert_ok GCP::valid_dataset_id("MyDataset2025")->{valid},  "valid_dataset_id: case preserved"

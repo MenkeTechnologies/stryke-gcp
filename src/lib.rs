@@ -1669,6 +1669,35 @@ fn op_valid_service_account_id(opts: Value) -> Result<Value> {
     Ok(json!({"id": id, "valid": reason.is_none(), "reason": reason}))
 }
 
+/// Validate a GCP Secret Manager secret ID per the Create-a-secret reference: 1
+/// to 255 characters of letters (upper or lower case), numerals, hyphens (`-`)
+/// and underscores (`_`). Unlike a service-account ID there is no leading-letter
+/// or trailing-hyphen restriction. The Secret Manager member of the `valid_*`
+/// family. opts: `id` (or `secret_id`/`name`/`value`, required). Returns `{id,
+/// valid, reason}`. Pure.
+fn op_valid_secret_id(opts: Value) -> Result<Value> {
+    let id = opts
+        .get("id")
+        .or_else(|| opts.get("secret_id"))
+        .or_else(|| opts.get("name"))
+        .or_else(|| opts.get("value"))
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("missing id"))?;
+    let reason: Option<&str> = if id.is_empty() {
+        Some("must not be empty")
+    } else if id.chars().count() > 255 {
+        Some("must be at most 255 characters")
+    } else if !id
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    {
+        Some("only letters, numerals, hyphens, and underscores")
+    } else {
+        None
+    };
+    Ok(json!({"id": id, "valid": reason.is_none(), "reason": reason}))
+}
+
 /// Validate a GCP resource label `key`/`value` pair against the Resource Manager
 /// rules: a key is 1-63 characters, must start with a lowercase letter (or an
 /// international character), and contains only lowercase letters, digits, `_`,
@@ -2018,6 +2047,11 @@ pub extern "C" fn gcp__valid_service_account_id(args: *const c_char) -> *const c
         args,
         |opts| async move { op_valid_service_account_id(opts) },
     )
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__valid_secret_id(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, |opts| async move { op_valid_secret_id(opts) })
 }
 
 #[no_mangle]
@@ -3066,6 +3100,42 @@ mod tests {
             json!(true)
         );
         assert!(op_valid_service_account_id(json!({})).is_err());
+    }
+
+    #[test]
+    fn valid_secret_id_enforces_secret_manager_rules() {
+        let chk = |id: &str| op_valid_secret_id(json!({ "id": id })).unwrap();
+        // Valid: mixed case, digits, hyphens, underscores; no leading/trailing rules.
+        assert_eq!(chk("my-Secret_1")["valid"], json!(true));
+        assert_eq!(
+            chk("-leading-ok")["valid"],
+            json!(true),
+            "no leading-letter rule"
+        );
+        assert_eq!(
+            chk("trailing-")["valid"],
+            json!(true),
+            "no trailing-hyphen rule"
+        );
+        assert_eq!(chk("A")["valid"], json!(true));
+        assert_eq!(
+            chk(&"a".repeat(255))["valid"],
+            json!(true),
+            "255 is the max"
+        );
+        // Too long / empty / disallowed characters.
+        assert_eq!(chk(&"a".repeat(256))["valid"], json!(false));
+        assert_eq!(chk("")["valid"], json!(false));
+        for bad in ["has space", "dot.id", "slash/id", "plus+id"] {
+            assert_eq!(chk(bad)["valid"], json!(false), "`{bad}` should be invalid");
+        }
+        // The reason is populated; `secret_id` alias; missing arg errors.
+        assert!(chk("dot.id")["reason"].is_string());
+        assert_eq!(
+            op_valid_secret_id(json!({"secret_id": "db-password"})).unwrap()["valid"],
+            json!(true)
+        );
+        assert!(op_valid_secret_id(json!({})).is_err());
     }
 
     #[test]

@@ -179,6 +179,7 @@ GCP::region_for_zone($zone)    → { zone, region, zone_letter }   # zone → re
 GCP::valid_label($key, $value?) → { key, value, valid, reason }   # Resource Manager label: key 1-63 start-lowercase-letter, value 0-63, lowercase/digit/_/-
 GCP::valid_pubsub_id($id)      → { id, valid, reason }   # Pub/Sub topic/subscription/schema/snapshot id: 3-255 chars, start-letter, no goog prefix, letters/digits/-_.~+%
 GCP::valid_service_account_id($id) → { id, valid, reason }   # IAM accountId: 6-30 chars, RFC1035 (lowercase/digit/hyphen, start-letter, no trailing hyphen)
+GCP::valid_secret_id($id)        → { id, valid, reason }   # Secret Manager secret ID: 1-255 chars, letters/numerals/-/_ (no leading/trailing restrictions)
 GCP::valid_dataset_id($id)     → { id, valid, reason }   # BigQuery dataset id: ≤1024 chars, letters/digits/underscores only (case-sensitive)
 GCP::valid_table_id($id)       → { id, valid, reason, bytes }   # BigQuery table id: ≤1024 UTF-8 bytes, Unicode letters/numbers + _ - space (broader than dataset)
 ```
