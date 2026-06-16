@@ -180,4 +180,12 @@ assert_eq GCP::valid_dataset_id("tbl.name")->{valid}, 0,    "valid_dataset_id: d
 assert_eq GCP::valid_dataset_id("")->{valid}, 0,            "valid_dataset_id: empty rejected"
 assert_dies fn { GCP::valid_dataset_id() }, "valid_dataset_id: dies on missing id"
 
+# valid_table_id: broader than dataset (allows dashes, spaces, Unicode; byte-capped).
+assert_ok GCP::valid_table_id("my-table 2025")->{valid}, "valid_table_id: dashes and spaces allowed"
+assert_ok GCP::valid_table_id("café_table")->{valid},    "valid_table_id: Unicode letters allowed"
+assert_eq GCP::valid_table_id("café_table")->{bytes}, 11, "valid_table_id: counts UTF-8 bytes (é is 2)"
+assert_eq GCP::valid_table_id("tbl.name")->{valid}, 0,    "valid_table_id: dot (separator) rejected"
+assert_eq GCP::valid_table_id("")->{valid}, 0,            "valid_table_id: empty rejected"
+assert_dies fn { GCP::valid_table_id() }, "valid_table_id: dies on missing id"
+
 test_run

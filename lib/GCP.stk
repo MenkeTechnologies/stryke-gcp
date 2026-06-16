@@ -384,3 +384,11 @@ fn GCP::valid_dataset_id ($id) {
     GCP::_decode("valid_dataset_id", gcp__valid_dataset_id(to_json({ id => $id })))
 }
 
+## Validate a BigQuery table $id — the companion of valid_dataset_id with the
+## broader table rules: at most 1024 UTF-8 BYTES (not characters) and Unicode
+## letters/numbers plus underscores, dashes, and spaces. Returns a hashref
+## { id, valid, reason, bytes } (bytes is the UTF-8 length).
+fn GCP::valid_table_id ($id) {
+    GCP::_decode("valid_table_id", gcp__valid_table_id(to_json({ id => $id })))
+}
+

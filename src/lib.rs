@@ -1728,6 +1728,33 @@ fn op_valid_dataset_id(opts: Value) -> Result<Value> {
     Ok(json!({"id": id, "valid": reason.is_none(), "reason": reason}))
 }
 
+/// Validate a BigQuery table ID — the companion of `valid_dataset_id`, but with
+/// the broader table-name rules: at most 1,024 UTF-8 bytes (not characters,
+/// unlike a dataset ID) and Unicode letters/numbers plus underscores, dashes,
+/// and spaces (the common members of the documented L/M/N/Pc/Pd/Zs categories).
+/// opts: `id` (or `name`, required). Returns `{id, valid, reason, bytes}` where
+/// `bytes` is the UTF-8 length. Pure.
+fn op_valid_table_id(opts: Value) -> Result<Value> {
+    let id = opts
+        .get("id")
+        .or_else(|| opts.get("name"))
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("missing id"))?;
+    let reason: Option<&str> = if id.is_empty() {
+        Some("must not be empty")
+    } else if id.len() > 1024 {
+        Some("UTF-8 encoding must be at most 1024 bytes")
+    } else if !id
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == ' ')
+    {
+        Some("only letters, numbers, underscores, dashes, and spaces")
+    } else {
+        None
+    };
+    Ok(json!({"id": id, "valid": reason.is_none(), "reason": reason, "bytes": id.len()}))
+}
+
 // ── exports ─────────────────────────────────────────────────────────────────
 
 #[no_mangle]
@@ -1955,6 +1982,11 @@ pub extern "C" fn gcp__valid_pubsub_id(args: *const c_char) -> *const c_char {
 #[no_mangle]
 pub extern "C" fn gcp__valid_dataset_id(args: *const c_char) -> *const c_char {
     ffi_call_async(args, |opts| async move { op_valid_dataset_id(opts) })
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__valid_table_id(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, |opts| async move { op_valid_table_id(opts) })
 }
 
 #[cfg(test)]
@@ -2988,5 +3020,33 @@ mod tests {
             json!(true)
         );
         assert!(op_valid_dataset_id(json!({})).is_err());
+    }
+
+    #[test]
+    fn valid_table_id_is_broader_than_dataset_id() {
+        let chk = |id: &str| op_valid_table_id(json!({ "id": id })).unwrap();
+        // Unlike a dataset ID, a table ID allows spaces and dashes.
+        assert_eq!(chk("my-table 2025")["valid"], json!(true));
+        assert_eq!(chk("orders_v2")["valid"], json!(true));
+        // Unicode letters are allowed (category L); bytes counts UTF-8.
+        let u = chk("café_table");
+        assert_eq!(u["valid"], json!(true));
+        assert_eq!(u["bytes"], json!(11)); // é is 2 bytes
+                                           // The 1024-byte cap (not characters): a multibyte string near the limit.
+        assert_eq!(chk(&"a".repeat(1024))["valid"], json!(true));
+        let over = chk(&"a".repeat(1025));
+        assert_eq!(over["valid"], json!(false));
+        assert!(over["reason"].as_str().unwrap().contains("1024 bytes"));
+        // Structural separators (Po category) are rejected.
+        for bad in ["tbl.name", "a:b", "a/b", "amp&", "pct%"] {
+            assert_eq!(chk(bad)["valid"], json!(false), "`{bad}` should be invalid");
+        }
+        // Empty rejected; `name` alias; missing arg errors.
+        assert_eq!(chk("")["valid"], json!(false));
+        assert_eq!(
+            op_valid_table_id(json!({"name": "events 2025"})).unwrap()["valid"],
+            json!(true)
+        );
+        assert!(op_valid_table_id(json!({})).is_err());
     }
 }

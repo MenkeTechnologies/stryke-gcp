@@ -179,6 +179,7 @@ GCP::region_for_zone($zone)    → { zone, region, zone_letter }   # zone → re
 GCP::valid_label($key, $value?) → { key, value, valid, reason }   # Resource Manager label: key 1-63 start-lowercase-letter, value 0-63, lowercase/digit/_/-
 GCP::valid_pubsub_id($id)      → { id, valid, reason }   # Pub/Sub topic/subscription/schema/snapshot id: 3-255 chars, start-letter, no goog prefix, letters/digits/-_.~+%
 GCP::valid_dataset_id($id)     → { id, valid, reason }   # BigQuery dataset id: ≤1024 chars, letters/digits/underscores only (case-sensitive)
+GCP::valid_table_id($id)       → { id, valid, reason, bytes }   # BigQuery table id: ≤1024 UTF-8 bytes, Unicode letters/numbers + _ - space (broader than dataset)
 ```
 
 ### `use GCP::Storage`
