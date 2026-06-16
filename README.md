@@ -172,6 +172,7 @@ GCP::parse_resource_name($n)   → { parts, pairs:{collection=>id}, trailing }  
 GCP::build_resource_name(%opts) → $name   # { parts } or { pairs, trailing } → resource name; inverse of parse_resource_name
 GCP::valid_bucket_name($name)  → { name, valid, reason }   # GCS rules (underscores OK, no `goog`/`google`)
 GCP::valid_project_id($id)     → { id, valid, reason }     # project ID: 6-30 lowercase/digit/hyphen, start letter, no trailing hyphen
+GCP::valid_object_name($name)  → { name, valid, reason }   # GCS object name hard rules: 1-1024 UTF-8 bytes, no CR/LF, not ./.., no .well-known/acme-challenge/ prefix
 GCP::region_for_zone($zone)    → { zone, region, zone_letter }   # zone → region (us-central1-a → us-central1)
 GCP::valid_label($key, $value?) → { key, value, valid, reason }   # Resource Manager label: key 1-63 start-lowercase-letter, value 0-63, lowercase/digit/_/-
 ```

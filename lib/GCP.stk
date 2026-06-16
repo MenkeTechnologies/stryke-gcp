@@ -327,6 +327,13 @@ fn GCP::valid_project_id ($id) {
     GCP::_decode("valid_project_id", gcp__valid_project_id(to_json({ id => $id })))
 }
 
+## Validate a Cloud Storage object name against GCS hard rules: 1-1024 UTF-8
+## bytes; no CR/LF; not exactly "." or ".."; no ".well-known/acme-challenge/"
+## prefix. Returns a hashref { name, valid, reason } (reason undef when valid).
+fn GCP::valid_object_name ($name) {
+    GCP::_decode("valid_object_name", gcp__valid_object_name(to_json({ name => $name })))
+}
+
 ## Derive the GCP region from a zone name (us-central1-a → us-central1): the
 ## zone with its trailing single-letter suffix removed. Returns a hashref
 ## { zone, region, zone_letter }; dies if the zone is malformed.

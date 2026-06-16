@@ -1485,6 +1485,34 @@ fn op_valid_project_id(opts: Value) -> Result<Value> {
     Ok(json!({"id": id, "valid": reason.is_none(), "reason": reason}))
 }
 
+/// Validate a Cloud Storage object name against GCS's hard requirements
+/// (cloud.google.com/storage/docs/objects): 1–1024 bytes when UTF-8 encoded; no
+/// Carriage Return or Line Feed; it cannot be exactly `.` or `..`; and it cannot
+/// start with `.well-known/acme-challenge/`. Characters GCS only *recommends*
+/// avoiding (control chars, `#`, `[`, `]`, `*`, `?`, …) are NOT rejected — only
+/// the hard rules. Distinct from `valid_bucket_name`. opts: `name` (required).
+/// Returns `{name, valid, reason}`. Pure.
+fn op_valid_object_name(opts: Value) -> Result<Value> {
+    let name = opts
+        .get("name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("missing name"))?;
+    let reason: Option<&str> = if name.is_empty() {
+        Some("must be at least 1 byte")
+    } else if name.len() > 1024 {
+        Some("must be at most 1024 bytes when UTF-8 encoded")
+    } else if name.contains(['\r', '\n']) {
+        Some("must not contain a carriage return or line feed")
+    } else if name == "." || name == ".." {
+        Some("must not be `.` or `..`")
+    } else if name.starts_with(".well-known/acme-challenge/") {
+        Some("must not start with `.well-known/acme-challenge/`")
+    } else {
+        None
+    };
+    Ok(json!({"name": name, "valid": reason.is_none(), "reason": reason}))
+}
+
 /// Derive the GCP region from a zone name. GCP zones are `<region>-<letter>`
 /// (e.g. `us-central1-a` → `us-central1`, `europe-west4-b` → `europe-west4`),
 /// so the region is the zone with its trailing single-letter suffix removed.
@@ -1739,6 +1767,11 @@ pub extern "C" fn gcp__valid_bucket_name(args: *const c_char) -> *const c_char {
 #[no_mangle]
 pub extern "C" fn gcp__valid_project_id(args: *const c_char) -> *const c_char {
     ffi_call_async(args, |opts| async move { op_valid_project_id(opts) })
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__valid_object_name(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, |opts| async move { op_valid_object_name(opts) })
 }
 
 #[no_mangle]
@@ -2529,6 +2562,44 @@ mod tests {
         }
         assert!(!ok(&"a".repeat(31)), "31 chars exceeds the max");
         assert!(op_valid_project_id(json!({})).is_err());
+    }
+
+    #[test]
+    fn valid_object_name_enforces_gcs_hard_rules() {
+        let chk = |n: &str| op_valid_object_name(json!({ "name": n })).unwrap();
+        // Ordinary keys with slashes, dots, unicode all pass.
+        for ok in [
+            "a",
+            "dir/sub/file.txt",
+            "a.b.c",
+            "naïve.txt",
+            "with spaces.png",
+            &"x".repeat(1024),
+        ] {
+            assert_eq!(chk(ok)["valid"], json!(true), "`{ok}` should be valid");
+        }
+        // Empty and over-1024-bytes fail.
+        assert_eq!(chk("")["valid"], json!(false));
+        assert_eq!(chk(&"x".repeat(1025))["valid"], json!(false));
+        // A multibyte char counts its UTF-8 bytes toward the 1024 limit.
+        assert_eq!(chk(&"é".repeat(513))["valid"], json!(false)); // 513*2 = 1026 bytes
+                                                                  // CR / LF forbidden.
+        assert_eq!(chk("a\rb")["valid"], json!(false));
+        assert_eq!(chk("a\nb")["valid"], json!(false));
+        // `.` and `..` forbidden; but `...` and `.foo` are fine.
+        assert_eq!(chk(".")["valid"], json!(false));
+        assert_eq!(chk("..")["valid"], json!(false));
+        assert_eq!(chk("...")["valid"], json!(true));
+        assert_eq!(chk(".hidden")["valid"], json!(true));
+        // The ACME challenge prefix is forbidden.
+        assert_eq!(
+            chk(".well-known/acme-challenge/token")["valid"],
+            json!(false)
+        );
+        // A different .well-known path is fine.
+        assert_eq!(chk(".well-known/other")["valid"], json!(true));
+        // Missing name errors.
+        assert!(op_valid_object_name(json!({})).is_err());
     }
 
     #[test]

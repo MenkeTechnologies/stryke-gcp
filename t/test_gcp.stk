@@ -108,6 +108,16 @@ assert_eq $pe->{valid}, 0,                                   "valid_project_id: 
 assert_match qr/hyphen/, $pe->{reason},                      "valid_project_id: reason names the rule"
 assert_eq GCP::valid_project_id("has_underscore")->{valid}, 0, "valid_project_id: underscore not allowed"
 
+# valid_object_name: GCS object-name hard rules.
+assert_ok GCP::valid_object_name("dir/sub/file.txt")->{valid}, "valid_object_name: ordinary key with slashes"
+assert_eq GCP::valid_object_name("")->{valid}, 0,             "valid_object_name: empty rejected"
+assert_eq GCP::valid_object_name(".")->{valid}, 0,           "valid_object_name: rejects bare dot"
+assert_eq GCP::valid_object_name("..")->{valid}, 0,          "valid_object_name: rejects double dot"
+assert_ok GCP::valid_object_name("...")->{valid},            "valid_object_name: triple dot is fine"
+assert_eq GCP::valid_object_name(".well-known/acme-challenge/tok")->{valid}, 0, "valid_object_name: rejects ACME challenge prefix"
+assert_eq GCP::valid_object_name("a\nb")->{valid}, 0,        "valid_object_name: rejects line feed"
+assert_dies fn { GCP::valid_object_name() }, "valid_object_name: dies on missing name"
+
 # region_for_zone: GCP zone → region (strip the trailing -<letter>).
 val $z = GCP::region_for_zone("us-central1-a")
 assert_eq $z->{region},      "us-central1", "region_for_zone: us-central1-a → us-central1"
