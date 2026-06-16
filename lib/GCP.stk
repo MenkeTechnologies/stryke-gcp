@@ -313,6 +313,15 @@ fn GCP::build_resource_name (%opts) {
     GCP::_decode("build_resource_name", gcp__build_resource_name(to_json(\%opts)))->{name}
 }
 
+## Parse a BigQuery fully-qualified table reference into a hashref
+## { table_ref, project, dataset, table, legacy }. Standard SQL dots everything
+## ("project.dataset.table"); legacy SQL / the bq CLI put a ":" after the project
+## ("project:dataset.table"). A project-less "dataset.table" is accepted (project
+## undef). dataset and table are always required.
+fn GCP::parse_table_ref ($table_ref) {
+    GCP::_decode("parse_table_ref", gcp__parse_table_ref(to_json({ table_ref => $table_ref })))
+}
+
 ## Validate a GCS bucket name (3-63 chars of [a-z0-9-._], start/end
 ## alphanumeric, not an IP, no "goog" prefix, no "google"). Underscores are
 ## allowed (unlike S3). Returns { name, valid, reason }.

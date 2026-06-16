@@ -92,6 +92,21 @@ assert_eq GCP::build_resource_name(pairs => [["projects", "p"], ["secrets", "s"]
 assert_eq GCP::build_resource_name(%{ GCP::parse_resource_name("projects/my-proj/topics/orders") }), "projects/my-proj/topics/orders", "build_resource_name: round-trips parse via parts"
 assert_dies fn { GCP::build_resource_name(parts => ["a/b", "c"]) }, "build_resource_name: rejects a segment containing '/'"
 
+# parse_table_ref: BigQuery fully-qualified table reference (standard vs legacy).
+val $std = GCP::parse_table_ref("my-proj.sales.orders")
+assert_eq $std->{project}, "my-proj", "parse_table_ref: standard project"
+assert_eq $std->{dataset}, "sales",   "parse_table_ref: standard dataset"
+assert_eq $std->{table},   "orders",  "parse_table_ref: standard table"
+assert_eq $std->{legacy},  0,         "parse_table_ref: dotted form is not legacy"
+val $leg = GCP::parse_table_ref("my-proj:sales.orders")
+assert_eq $leg->{project}, "my-proj", "parse_table_ref: legacy project (colon)"
+assert_eq $leg->{legacy},  1,         "parse_table_ref: colon form is legacy"
+val $bare = GCP::parse_table_ref("sales.orders")
+assert_ok !defined($bare->{project}), "parse_table_ref: project-less dataset.table"
+assert_eq $bare->{table}, "orders",   "parse_table_ref: bare form keeps table"
+assert_dies fn { GCP::parse_table_ref("orders") },      "parse_table_ref: rejects a bare table"
+assert_dies fn { GCP::parse_table_ref("a:b:c.d") },     "parse_table_ref: rejects two colons"
+
 assert_ok GCP::valid_bucket_name("my_data.bucket-1")->{valid}, "valid_bucket_name: underscores legal in GCS"
 val $g = GCP::valid_bucket_name("goog-private")
 assert_eq $g->{valid}, 0, "valid_bucket_name: rejects goog prefix"

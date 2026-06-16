@@ -1427,6 +1427,53 @@ fn op_build_resource_name(opts: Value) -> Result<Value> {
     Ok(json!({ "name": segs.join("/") }))
 }
 
+/// Parse a BigQuery fully-qualified table reference into `{project, dataset,
+/// table, legacy}`. Standard SQL dots everything (`project.dataset.table`);
+/// legacy SQL / the bq CLI put a `:` after the project (`project:dataset.table`).
+/// A project-less `dataset.table` is accepted (project is `null`). The dataset
+/// and table segments are always required and may not be empty. opts: `table_ref`
+/// (or `value`, required). Returns `{table_ref, project, dataset, table, legacy}`.
+/// Pure.
+fn op_parse_table_ref(opts: Value) -> Result<Value> {
+    let r = opts
+        .get("table_ref")
+        .or_else(|| opts.get("value"))
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("missing table_ref"))?;
+    // Legacy `project:dataset.table` has exactly one `:` splitting off the project.
+    let (project, rest, legacy) = if let Some((p, rest)) = r.split_once(':') {
+        if rest.contains(':') {
+            return Err(anyhow!("invalid table ref `{r}` (more than one `:`)"));
+        }
+        (Some(p), rest, true)
+    } else {
+        (None, r, false)
+    };
+    let dot_parts: Vec<&str> = rest.split('.').collect();
+    let (project, dataset, table) = match (project, dot_parts.as_slice()) {
+        // Legacy: project came from the `:`, so the remainder is dataset.table.
+        (Some(p), [d, t]) => (Some(p), *d, *t),
+        // Standard dotted forms.
+        (None, [p, d, t]) => (Some(*p), *d, *t),
+        (None, [d, t]) => (None, *d, *t),
+        _ => {
+            return Err(anyhow!(
+                "invalid table ref `{r}` (want [project.|project:]dataset.table)"
+            ))
+        }
+    };
+    if dataset.is_empty() || table.is_empty() || project == Some("") {
+        return Err(anyhow!("table ref `{r}` has an empty segment"));
+    }
+    Ok(json!({
+        "table_ref": r,
+        "project": project,
+        "dataset": dataset,
+        "table": table,
+        "legacy": legacy,
+    }))
+}
+
 /// Validate a GCS bucket name against Google's rules: 3–63 chars of
 /// `[a-z0-9-._]`, start/end alphanumeric, not an IPv4 literal, no `goog`
 /// prefix, no `google` substring. (Note: unlike S3, underscores are allowed.)
@@ -1811,6 +1858,11 @@ pub extern "C" fn gcp__parse_resource_name(args: *const c_char) -> *const c_char
 #[no_mangle]
 pub extern "C" fn gcp__build_resource_name(args: *const c_char) -> *const c_char {
     ffi_call_async(args, |opts| async move { op_build_resource_name(opts) })
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__parse_table_ref(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, |opts| async move { op_parse_table_ref(opts) })
 }
 
 #[no_mangle]
@@ -2572,6 +2624,38 @@ mod tests {
         assert!(op_build_resource_name(json!({"parts": []})).is_err());
         assert!(op_build_resource_name(json!({"parts": ["a/b", "c"]})).is_err());
         assert!(op_build_resource_name(json!({})).is_err());
+    }
+
+    #[test]
+    fn parse_table_ref_handles_standard_and_legacy_forms() {
+        // Standard SQL: dots throughout.
+        let std = op_parse_table_ref(json!({"table_ref": "my-proj.sales.orders"})).unwrap();
+        assert_eq!(std["project"], json!("my-proj"));
+        assert_eq!(std["dataset"], json!("sales"));
+        assert_eq!(std["table"], json!("orders"));
+        assert_eq!(std["legacy"], json!(false));
+        // Legacy SQL / bq CLI: a `:` after the project.
+        let leg = op_parse_table_ref(json!({"table_ref": "my-proj:sales.orders"})).unwrap();
+        assert_eq!(leg["project"], json!("my-proj"));
+        assert_eq!(leg["dataset"], json!("sales"));
+        assert_eq!(leg["table"], json!("orders"));
+        assert_eq!(leg["legacy"], json!(true));
+        // Project-less dataset.table → project is null.
+        let bare = op_parse_table_ref(json!({"table_ref": "sales.orders"})).unwrap();
+        assert_eq!(bare["project"], Value::Null);
+        assert_eq!(bare["dataset"], json!("sales"));
+        assert_eq!(bare["table"], json!("orders"));
+        // `value` alias.
+        assert_eq!(
+            op_parse_table_ref(json!({"value": "p.d.t"})).unwrap()["table"],
+            json!("t")
+        );
+        // Errors: bare table, empty segment, two colons, missing.
+        assert!(op_parse_table_ref(json!({"table_ref": "orders"})).is_err());
+        assert!(op_parse_table_ref(json!({"table_ref": "proj..table"})).is_err());
+        assert!(op_parse_table_ref(json!({"table_ref": "a:b:c.d"})).is_err());
+        assert!(op_parse_table_ref(json!({"table_ref": "p.d.t.extra"})).is_err());
+        assert!(op_parse_table_ref(json!({})).is_err());
     }
 
     #[test]

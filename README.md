@@ -170,6 +170,7 @@ GCP::gs_uri_to_url($uri)       → { url, bucket, object }   # gs://b/o → http
 GCP::url_to_gs_uri($url)       → { uri, bucket, object }   # GCS URL (path/virtual-hosted) → gs://b/o; inverse of gs_uri_to_url
 GCP::parse_resource_name($n)   → { parts, pairs:{collection=>id}, trailing }   # projects/p/topics/t
 GCP::build_resource_name(%opts) → $name   # { parts } or { pairs, trailing } → resource name; inverse of parse_resource_name
+GCP::parse_table_ref($ref) → { table_ref, project, dataset, table, legacy }   # BigQuery project.dataset.table (standard) or project:dataset.table (legacy)
 GCP::valid_bucket_name($name)  → { name, valid, reason }   # GCS rules (underscores OK, no `goog`/`google`)
 GCP::valid_project_id($id)     → { id, valid, reason }     # project ID: 6-30 lowercase/digit/hyphen, start letter, no trailing hyphen
 GCP::valid_object_name($name)  → { name, valid, reason }   # GCS object name hard rules: 1-1024 UTF-8 bytes, no CR/LF, not ./.., no .well-known/acme-challenge/ prefix
