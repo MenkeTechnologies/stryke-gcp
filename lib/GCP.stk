@@ -349,3 +349,11 @@ fn GCP::valid_label ($key, $value = "") {
     GCP::_decode("valid_label", gcp__valid_label(to_json({ key => $key, value => $value })))
 }
 
+## Validate a Pub/Sub resource ID ($id — topic, subscription, schema, or
+## snapshot) per Google's naming guidelines: 3-255 chars, starts with a letter,
+## must not begin with "goog", and only letters/digits/-/_/./~/+/% allowed. The
+## same rule governs all four resource kinds. Returns a hashref { id, valid, reason }.
+fn GCP::valid_pubsub_id ($id) {
+    GCP::_decode("valid_pubsub_id", gcp__valid_pubsub_id(to_json({ id => $id })))
+}
+

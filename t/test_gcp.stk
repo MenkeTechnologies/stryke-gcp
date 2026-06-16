@@ -135,4 +135,15 @@ assert_eq GCP::valid_label("1env", "x")->{valid}, 0,         "valid_label: key m
 assert_eq GCP::valid_label("Env", "x")->{valid}, 0,          "valid_label: key rejects uppercase"
 assert_eq GCP::valid_label("env", "Prod")->{valid}, 0,       "valid_label: value rejects uppercase"
 
+# valid_pubsub_id: Pub/Sub topic/subscription/schema/snapshot naming rules.
+assert_ok GCP::valid_pubsub_id("my-topic")->{valid},               "valid_pubsub_id: ordinary id"
+assert_ok GCP::valid_pubsub_id("orders.v2_dlq~1+a%20")->{valid},   "valid_pubsub_id: full allowed punctuation"
+assert_eq GCP::valid_pubsub_id("ab")->{valid}, 0,                  "valid_pubsub_id: under 3 chars rejected"
+assert_eq GCP::valid_pubsub_id("1topic")->{valid}, 0,             "valid_pubsub_id: must start with a letter"
+assert_eq GCP::valid_pubsub_id("googtopic")->{valid}, 0,         "valid_pubsub_id: goog prefix reserved"
+assert_ok GCP::valid_pubsub_id("Googtopic")->{valid},             "valid_pubsub_id: capital Goog is not the reserved prefix"
+assert_eq GCP::valid_pubsub_id("has space")->{valid}, 0,         "valid_pubsub_id: space rejected"
+assert_eq GCP::valid_pubsub_id("slash/no")->{valid}, 0,          "valid_pubsub_id: slash rejected"
+assert_dies fn { GCP::valid_pubsub_id() }, "valid_pubsub_id: dies on missing id"
+
 test_run

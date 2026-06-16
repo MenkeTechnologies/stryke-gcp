@@ -1575,6 +1575,36 @@ fn op_valid_label(opts: Value) -> Result<Value> {
     Ok(json!({"key": key, "value": value, "valid": reason.is_none(), "reason": reason}))
 }
 
+/// Validate a Pub/Sub resource ID (topic, subscription, schema, or snapshot)
+/// against Google's naming guidelines
+/// (cloud.google.com/pubsub/docs/pubsub-basics): 3–255 characters; must start
+/// with a letter; may not begin with the string `goog`; and may contain only
+/// letters `[A-Za-z]`, digits `[0-9]`, and `- _ . ~ + %`. The same rule governs
+/// all four resource kinds. opts: `id` (or `name`). Returns `{id, valid,
+/// reason}`. Pure.
+fn op_valid_pubsub_id(opts: Value) -> Result<Value> {
+    let id = opts
+        .get("id")
+        .or_else(|| opts.get("name"))
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("missing id"))?;
+    let len = id.chars().count();
+    let char_ok =
+        |c: char| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '~' | '+' | '%');
+    let reason: Option<&str> = if !(3..=255).contains(&len) {
+        Some("must be 3-255 characters")
+    } else if !id.chars().next().is_some_and(|c| c.is_ascii_alphabetic()) {
+        Some("must start with a letter")
+    } else if id.starts_with("goog") {
+        Some("must not begin with `goog`")
+    } else if !id.chars().all(char_ok) {
+        Some("only letters, digits, and '-', '_', '.', '~', '+', '%'")
+    } else {
+        None
+    };
+    Ok(json!({"id": id, "valid": reason.is_none(), "reason": reason}))
+}
+
 // ── exports ─────────────────────────────────────────────────────────────────
 
 #[no_mangle]
@@ -1782,6 +1812,11 @@ pub extern "C" fn gcp__region_for_zone(args: *const c_char) -> *const c_char {
 #[no_mangle]
 pub extern "C" fn gcp__valid_label(args: *const c_char) -> *const c_char {
     ffi_call_async(args, |opts| async move { op_valid_label(opts) })
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__valid_pubsub_id(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, |opts| async move { op_valid_pubsub_id(opts) })
 }
 
 #[cfg(test)]
@@ -2666,5 +2701,42 @@ mod tests {
             json!(true)
         );
         assert!(op_valid_label(json!({})).is_err());
+    }
+
+    #[test]
+    fn valid_pubsub_id_enforces_naming_guidelines() {
+        let chk = |id: &str| op_valid_pubsub_id(json!({ "id": id })).unwrap();
+        // Valid: starts with a letter, allowed punctuation, 3-255 chars.
+        assert_eq!(chk("my-topic")["valid"], json!(true));
+        assert_eq!(chk("orders.v2_dead-letter~1+a%20")["valid"], json!(true));
+        assert_eq!(chk("abc")["valid"], json!(true), "3 chars is the min");
+        // Too short / too long.
+        assert_eq!(chk("ab")["valid"], json!(false));
+        assert!(chk("ab")["reason"].as_str().unwrap().contains("3-255"));
+        assert_eq!(chk(&"a".repeat(256))["valid"], json!(false));
+        assert_eq!(chk(&"a".repeat(255))["valid"], json!(true));
+        // Must start with a letter.
+        let dig = chk("1topic");
+        assert_eq!(dig["valid"], json!(false));
+        assert!(dig["reason"]
+            .as_str()
+            .unwrap()
+            .contains("start with a letter"));
+        // The `goog` prefix is reserved.
+        let g = chk("googtopic");
+        assert_eq!(g["valid"], json!(false));
+        assert!(g["reason"].as_str().unwrap().contains("goog"));
+        // Capitalized `Goog` is NOT the reserved prefix → allowed.
+        assert_eq!(chk("Googtopic")["valid"], json!(true));
+        // Disallowed characters.
+        for bad in ["has space", "slash/no", "dollar$", "comma,no"] {
+            assert_eq!(chk(bad)["valid"], json!(false), "`{bad}` should be invalid");
+        }
+        // `name` is accepted as an alias for `id`.
+        assert_eq!(
+            op_valid_pubsub_id(json!({"name": "my-sub"})).unwrap()["valid"],
+            json!(true)
+        );
+        assert!(op_valid_pubsub_id(json!({})).is_err());
     }
 }
