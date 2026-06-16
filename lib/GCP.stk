@@ -322,6 +322,16 @@ fn GCP::parse_table_ref ($table_ref) {
     GCP::_decode("parse_table_ref", gcp__parse_table_ref(to_json({ table_ref => $table_ref })))
 }
 
+## Assemble a BigQuery table reference from parts — the inverse of parse_table_ref.
+## %opts: dataset (required), table (required), project (optional), legacy
+## (optional; with a project, true → "project:dataset.table", false →
+## "project.dataset.table"). Without a project the result is "dataset.table" (and
+## legacy then requires a project). No segment may contain "." or ":". Returns a
+## hashref { table_ref, project, dataset, table, legacy }.
+fn GCP::build_table_ref (%opts) {
+    GCP::_decode("build_table_ref", gcp__build_table_ref(to_json(\%opts)))
+}
+
 ## Validate a GCS bucket name (3-63 chars of [a-z0-9-._], start/end
 ## alphanumeric, not an IP, no "goog" prefix, no "google"). Underscores are
 ## allowed (unlike S3). Returns { name, valid, reason }.

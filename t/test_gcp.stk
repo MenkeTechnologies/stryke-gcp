@@ -107,6 +107,15 @@ assert_eq $bare->{table}, "orders",   "parse_table_ref: bare form keeps table"
 assert_dies fn { GCP::parse_table_ref("orders") },      "parse_table_ref: rejects a bare table"
 assert_dies fn { GCP::parse_table_ref("a:b:c.d") },     "parse_table_ref: rejects two colons"
 
+# build_table_ref: inverse of parse_table_ref.
+assert_eq GCP::build_table_ref(dataset => "sales", table => "orders", project => "my-proj")->{table_ref}, "my-proj.sales.orders", "build_table_ref: standard dotted form"
+assert_eq GCP::build_table_ref(dataset => "sales", table => "orders", project => "my-proj", legacy => 1)->{table_ref}, "my-proj:sales.orders", "build_table_ref: legacy colon form"
+assert_eq GCP::build_table_ref(dataset => "sales", table => "orders")->{table_ref}, "sales.orders", "build_table_ref: project-less"
+assert_eq GCP::build_table_ref(%{ GCP::parse_table_ref("my-proj:sales.orders") })->{table_ref}, "my-proj:sales.orders", "build_table_ref: round-trips a parsed ref"
+assert_dies fn { GCP::build_table_ref(table => "orders") },                              "build_table_ref: requires a dataset"
+assert_dies fn { GCP::build_table_ref(dataset => "a.b", table => "orders") },            "build_table_ref: rejects a separator in a segment"
+assert_dies fn { GCP::build_table_ref(dataset => "sales", table => "orders", legacy => 1) }, "build_table_ref: legacy needs a project"
+
 assert_ok GCP::valid_bucket_name("my_data.bucket-1")->{valid}, "valid_bucket_name: underscores legal in GCS"
 val $g = GCP::valid_bucket_name("goog-private")
 assert_eq $g->{valid}, 0, "valid_bucket_name: rejects goog prefix"

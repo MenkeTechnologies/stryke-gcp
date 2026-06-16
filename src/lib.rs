@@ -1474,6 +1474,58 @@ fn op_parse_table_ref(opts: Value) -> Result<Value> {
     }))
 }
 
+/// Assemble a BigQuery table reference from parts — the inverse of
+/// `parse_table_ref`. With a `project`, `legacy` (default false) selects the
+/// separator: standard SQL dots everything (`project.dataset.table`) while legacy
+/// uses a `:` after the project (`project:dataset.table`). Without a project the
+/// result is `dataset.table` (and `legacy` then requires a project, so it errors).
+/// No segment may contain a `.` or `:`. opts: `dataset` (required), `table`
+/// (required), `project` (optional), `legacy` (optional). Returns
+/// `{table_ref, project, dataset, table, legacy}`. Pure.
+fn op_build_table_ref(opts: Value) -> Result<Value> {
+    let dataset = opts
+        .get("dataset")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| anyhow!("missing dataset"))?;
+    let table = opts
+        .get("table")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| anyhow!("missing table"))?;
+    let project = opts
+        .get("project")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty());
+    let legacy = match opts.get("legacy") {
+        Some(Value::Bool(b)) => *b,
+        Some(Value::Number(n)) => n.as_i64().is_some_and(|x| x != 0),
+        Some(Value::String(s)) => s == "1" || s.eq_ignore_ascii_case("true"),
+        _ => false,
+    };
+    for (name, seg) in [("dataset", dataset), ("table", table)]
+        .into_iter()
+        .chain(project.map(|p| ("project", p)))
+    {
+        if seg.contains('.') || seg.contains(':') {
+            return Err(anyhow!("{name} must not contain `.` or `:`: {seg}"));
+        }
+    }
+    let table_ref = match (project, legacy) {
+        (Some(p), true) => format!("{p}:{dataset}.{table}"),
+        (Some(p), false) => format!("{p}.{dataset}.{table}"),
+        (None, true) => return Err(anyhow!("legacy form requires a project")),
+        (None, false) => format!("{dataset}.{table}"),
+    };
+    Ok(json!({
+        "table_ref": table_ref,
+        "project": project,
+        "dataset": dataset,
+        "table": table,
+        "legacy": legacy,
+    }))
+}
+
 /// Validate a GCS bucket name against Google's rules: 3–63 chars of
 /// `[a-z0-9-._]`, start/end alphanumeric, not an IPv4 literal, no `goog`
 /// prefix, no `google` substring. (Note: unlike S3, underscores are allowed.)
@@ -1863,6 +1915,11 @@ pub extern "C" fn gcp__build_resource_name(args: *const c_char) -> *const c_char
 #[no_mangle]
 pub extern "C" fn gcp__parse_table_ref(args: *const c_char) -> *const c_char {
     ffi_call_async(args, |opts| async move { op_parse_table_ref(opts) })
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__build_table_ref(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, |opts| async move { op_build_table_ref(opts) })
 }
 
 #[no_mangle]
@@ -2656,6 +2713,49 @@ mod tests {
         assert!(op_parse_table_ref(json!({"table_ref": "a:b:c.d"})).is_err());
         assert!(op_parse_table_ref(json!({"table_ref": "p.d.t.extra"})).is_err());
         assert!(op_parse_table_ref(json!({})).is_err());
+    }
+
+    #[test]
+    fn build_table_ref_inverts_parse_table_ref() {
+        // Standard dotted form with a project.
+        assert_eq!(
+            op_build_table_ref(json!({"project": "p", "dataset": "d", "table": "t"})).unwrap()
+                ["table_ref"],
+            json!("p.d.t")
+        );
+        // Legacy colon form.
+        assert_eq!(
+            op_build_table_ref(
+                json!({"project": "p", "dataset": "d", "table": "t", "legacy": true})
+            )
+            .unwrap()["table_ref"],
+            json!("p:d.t")
+        );
+        // Project-less → dataset.table.
+        assert_eq!(
+            op_build_table_ref(json!({"dataset": "d", "table": "t"})).unwrap()["table_ref"],
+            json!("d.t")
+        );
+        // Round-trips parse_table_ref both ways (project field is null vs string).
+        for av in [
+            "my-proj.sales.orders",
+            "my-proj:sales.orders",
+            "sales.orders",
+        ] {
+            let p = op_parse_table_ref(json!({ "table_ref": av })).unwrap();
+            let rebuilt = op_build_table_ref(json!({
+                "project": p["project"], "dataset": p["dataset"],
+                "table": p["table"], "legacy": p["legacy"],
+            }))
+            .unwrap();
+            assert_eq!(rebuilt["table_ref"], json!(av), "round-trip {av}");
+        }
+        // Errors: missing dataset/table, a separator in a segment, legacy w/o project.
+        assert!(op_build_table_ref(json!({"table": "t"})).is_err());
+        assert!(op_build_table_ref(json!({"dataset": "d"})).is_err());
+        assert!(op_build_table_ref(json!({"dataset": "a.b", "table": "t"})).is_err());
+        assert!(op_build_table_ref(json!({"dataset": "d", "table": "t", "legacy": true})).is_err());
+        assert!(op_build_table_ref(json!({})).is_err());
     }
 
     #[test]
