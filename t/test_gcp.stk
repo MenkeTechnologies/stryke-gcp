@@ -108,4 +108,13 @@ assert_eq $pe->{valid}, 0,                                   "valid_project_id: 
 assert_match qr/hyphen/, $pe->{reason},                      "valid_project_id: reason names the rule"
 assert_eq GCP::valid_project_id("has_underscore")->{valid}, 0, "valid_project_id: underscore not allowed"
 
+# region_for_zone: GCP zone → region (strip the trailing -<letter>).
+val $z = GCP::region_for_zone("us-central1-a")
+assert_eq $z->{region},      "us-central1", "region_for_zone: us-central1-a → us-central1"
+assert_eq $z->{zone_letter}, "a",           "region_for_zone: zone letter split out"
+assert_eq GCP::region_for_zone("europe-west4-b")->{region},    "europe-west4",    "region_for_zone: multi-hyphen region"
+assert_eq GCP::region_for_zone("asia-northeast1-c")->{region}, "asia-northeast1", "region_for_zone: asia region"
+assert_dies fn { GCP::region_for_zone("uscentral1") },     "region_for_zone: rejects a zone with no hyphen"
+assert_dies fn { GCP::region_for_zone("us-central1-ab") }, "region_for_zone: rejects a multi-char suffix"
+
 test_run

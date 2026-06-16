@@ -172,6 +172,7 @@ GCP::parse_resource_name($n)   → { parts, pairs:{collection=>id}, trailing }  
 GCP::build_resource_name(%opts) → $name   # { parts } or { pairs, trailing } → resource name; inverse of parse_resource_name
 GCP::valid_bucket_name($name)  → { name, valid, reason }   # GCS rules (underscores OK, no `goog`/`google`)
 GCP::valid_project_id($id)     → { id, valid, reason }     # project ID: 6-30 lowercase/digit/hyphen, start letter, no trailing hyphen
+GCP::region_for_zone($zone)    → { zone, region, zone_letter }   # zone → region (us-central1-a → us-central1)
 ```
 
 ### `use GCP::Storage`

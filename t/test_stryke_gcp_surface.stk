@@ -98,5 +98,6 @@ assert_ok exists &GCP::parse_resource_name, "GCP::parse_resource_name exists"
 assert_ok exists &GCP::build_resource_name, "GCP::build_resource_name exists"
 assert_ok exists &GCP::valid_bucket_name, "GCP::valid_bucket_name exists"
 assert_ok exists &GCP::valid_project_id, "GCP::valid_project_id exists"
+assert_ok exists &GCP::region_for_zone, "GCP::region_for_zone exists"
 
 test_run

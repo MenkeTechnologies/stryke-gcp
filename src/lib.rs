@@ -1485,6 +1485,30 @@ fn op_valid_project_id(opts: Value) -> Result<Value> {
     Ok(json!({"id": id, "valid": reason.is_none(), "reason": reason}))
 }
 
+/// Derive the GCP region from a zone name. GCP zones are `<region>-<letter>`
+/// (e.g. `us-central1-a` → `us-central1`, `europe-west4-b` → `europe-west4`),
+/// so the region is the zone with its trailing single-letter suffix removed.
+/// opts: `zone` (required). Returns `{zone, region, zone_letter}`; errors if the
+/// zone has no `-` or the suffix isn't a single ASCII letter. Pure.
+fn op_region_for_zone(opts: Value) -> Result<Value> {
+    let zone = opts
+        .get("zone")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("missing zone"))?;
+    let (region, letter) = zone
+        .rsplit_once('-')
+        .ok_or_else(|| anyhow!("not a GCP zone (want <region>-<letter>): {zone}"))?;
+    if region.is_empty() {
+        return Err(anyhow!("zone `{zone}` has an empty region part"));
+    }
+    if letter.len() != 1 || !letter.as_bytes()[0].is_ascii_alphabetic() {
+        return Err(anyhow!(
+            "zone `{zone}` must end with a single-letter zone suffix"
+        ));
+    }
+    Ok(json!({"zone": zone, "region": region, "zone_letter": letter}))
+}
+
 // ── exports ─────────────────────────────────────────────────────────────────
 
 #[no_mangle]
@@ -1677,6 +1701,11 @@ pub extern "C" fn gcp__valid_bucket_name(args: *const c_char) -> *const c_char {
 #[no_mangle]
 pub extern "C" fn gcp__valid_project_id(args: *const c_char) -> *const c_char {
     ffi_call_async(args, |opts| async move { op_valid_project_id(opts) })
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__region_for_zone(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, |opts| async move { op_region_for_zone(opts) })
 }
 
 #[cfg(test)]
@@ -2457,5 +2486,26 @@ mod tests {
         }
         assert!(!ok(&"a".repeat(31)), "31 chars exceeds the max");
         assert!(op_valid_project_id(json!({})).is_err());
+    }
+
+    #[test]
+    fn region_for_zone_strips_the_zone_letter() {
+        let v = op_region_for_zone(json!({"zone": "us-central1-a"})).unwrap();
+        assert_eq!(v["region"], json!("us-central1"));
+        assert_eq!(v["zone_letter"], json!("a"));
+        // Multi-hyphen regions still resolve (only the last segment is stripped).
+        assert_eq!(
+            op_region_for_zone(json!({"zone": "europe-west4-b"})).unwrap()["region"],
+            json!("europe-west4")
+        );
+        assert_eq!(
+            op_region_for_zone(json!({"zone": "asia-northeast1-c"})).unwrap()["region"],
+            json!("asia-northeast1")
+        );
+        // No hyphen, or a multi-char / non-letter suffix, errors.
+        assert!(op_region_for_zone(json!({"zone": "uscentral1"})).is_err());
+        assert!(op_region_for_zone(json!({"zone": "us-central1-ab"})).is_err());
+        assert!(op_region_for_zone(json!({"zone": "us-central1-1"})).is_err());
+        assert!(op_region_for_zone(json!({})).is_err());
     }
 }
