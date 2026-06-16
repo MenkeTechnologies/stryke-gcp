@@ -146,4 +146,14 @@ assert_eq GCP::valid_pubsub_id("has space")->{valid}, 0,         "valid_pubsub_i
 assert_eq GCP::valid_pubsub_id("slash/no")->{valid}, 0,          "valid_pubsub_id: slash rejected"
 assert_dies fn { GCP::valid_pubsub_id() }, "valid_pubsub_id: dies on missing id"
 
+# valid_dataset_id: BigQuery dataset naming rules.
+assert_ok GCP::valid_dataset_id("my_dataset")->{valid},     "valid_dataset_id: letters/digits/underscores"
+assert_ok GCP::valid_dataset_id("MyDataset2025")->{valid},  "valid_dataset_id: case preserved"
+assert_ok GCP::valid_dataset_id("_hidden")->{valid},        "valid_dataset_id: leading underscore (hidden) allowed"
+assert_eq GCP::valid_dataset_id("with-hyphen")->{valid}, 0, "valid_dataset_id: hyphen rejected"
+assert_eq GCP::valid_dataset_id("has space")->{valid}, 0,   "valid_dataset_id: space rejected"
+assert_eq GCP::valid_dataset_id("tbl.name")->{valid}, 0,    "valid_dataset_id: dot rejected"
+assert_eq GCP::valid_dataset_id("")->{valid}, 0,            "valid_dataset_id: empty rejected"
+assert_dies fn { GCP::valid_dataset_id() }, "valid_dataset_id: dies on missing id"
+
 test_run

@@ -1605,6 +1605,30 @@ fn op_valid_pubsub_id(opts: Value) -> Result<Value> {
     Ok(json!({"id": id, "valid": reason.is_none(), "reason": reason}))
 }
 
+/// Validate a BigQuery dataset ID against Google's naming rules
+/// (cloud.google.com/bigquery/docs/datasets): up to 1,024 characters of letters
+/// (upper or lower case), digits, and underscores only — no spaces or special
+/// characters like `-`, `&`, `@`, `%`. Dataset IDs are case-sensitive. A leading
+/// underscore is allowed; it just marks a hidden dataset. opts: `id` (or `name`).
+/// Returns `{id, valid, reason}`. Pure.
+fn op_valid_dataset_id(opts: Value) -> Result<Value> {
+    let id = opts
+        .get("id")
+        .or_else(|| opts.get("name"))
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("missing id"))?;
+    let reason: Option<&str> = if id.is_empty() {
+        Some("must not be empty")
+    } else if id.chars().count() > 1024 {
+        Some("must be at most 1024 characters")
+    } else if !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        Some("only letters, digits, and underscores")
+    } else {
+        None
+    };
+    Ok(json!({"id": id, "valid": reason.is_none(), "reason": reason}))
+}
+
 // ── exports ─────────────────────────────────────────────────────────────────
 
 #[no_mangle]
@@ -1817,6 +1841,11 @@ pub extern "C" fn gcp__valid_label(args: *const c_char) -> *const c_char {
 #[no_mangle]
 pub extern "C" fn gcp__valid_pubsub_id(args: *const c_char) -> *const c_char {
     ffi_call_async(args, |opts| async move { op_valid_pubsub_id(opts) })
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__valid_dataset_id(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, |opts| async move { op_valid_dataset_id(opts) })
 }
 
 #[cfg(test)]
@@ -2738,5 +2767,42 @@ mod tests {
             json!(true)
         );
         assert!(op_valid_pubsub_id(json!({})).is_err());
+    }
+
+    #[test]
+    fn valid_dataset_id_enforces_bigquery_naming() {
+        let chk = |id: &str| op_valid_dataset_id(json!({ "id": id })).unwrap();
+        // Valid: letters, digits, underscores; case is preserved; leading `_` ok.
+        assert_eq!(chk("my_dataset")["valid"], json!(true));
+        assert_eq!(chk("MyDataset2025")["valid"], json!(true));
+        assert_eq!(
+            chk("_hidden")["valid"],
+            json!(true),
+            "leading underscore is a hidden dataset"
+        );
+        assert_eq!(chk("a")["valid"], json!(true), "single char is fine");
+        // 1024 chars is the max; 1025 is too long.
+        assert_eq!(chk(&"a".repeat(1024))["valid"], json!(true));
+        let long = chk(&"a".repeat(1025));
+        assert_eq!(long["valid"], json!(false));
+        assert!(long["reason"].as_str().unwrap().contains("1024"));
+        // Forbidden characters: spaces, hyphens, and other specials.
+        for bad in [
+            "has space",
+            "with-hyphen",
+            "tbl.name",
+            "amp&",
+            "at@",
+            "pct%",
+        ] {
+            assert_eq!(chk(bad)["valid"], json!(false), "`{bad}` should be invalid");
+        }
+        // Empty is rejected; `name` is an alias for `id`.
+        assert_eq!(chk("")["valid"], json!(false));
+        assert_eq!(
+            op_valid_dataset_id(json!({"name": "events_2025"})).unwrap()["valid"],
+            json!(true)
+        );
+        assert!(op_valid_dataset_id(json!({})).is_err());
     }
 }
