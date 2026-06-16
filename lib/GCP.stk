@@ -376,6 +376,14 @@ fn GCP::valid_pubsub_id ($id) {
     GCP::_decode("valid_pubsub_id", gcp__valid_pubsub_id(to_json({ id => $id })))
 }
 
+## Validate a GCP service-account ID ($id — the part before the @ in a service
+## account email) per the IAM accountId rules: 6-30 chars, RFC1035-compliant —
+## only lowercase letters/digits/hyphens, must start with a lowercase letter, and
+## must not end with a hyphen. Returns a hashref { id, valid, reason }.
+fn GCP::valid_service_account_id ($id) {
+    GCP::_decode("valid_service_account_id", gcp__valid_service_account_id(to_json({ id => $id })))
+}
+
 ## Validate a BigQuery dataset ID ($id) per Google's naming rules: up to 1024
 ## chars of letters/digits/underscores only — no spaces or "-&@%" specials;
 ## case-sensitive (a leading underscore marks a hidden dataset). Returns a hashref

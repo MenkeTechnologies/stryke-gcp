@@ -170,6 +170,15 @@ assert_eq GCP::valid_pubsub_id("has space")->{valid}, 0,         "valid_pubsub_i
 assert_eq GCP::valid_pubsub_id("slash/no")->{valid}, 0,          "valid_pubsub_id: slash rejected"
 assert_dies fn { GCP::valid_pubsub_id() }, "valid_pubsub_id: dies on missing id"
 
+# valid_service_account_id: IAM accountId rules (RFC1035, 6-30 chars).
+assert_ok GCP::valid_service_account_id("my-svc")->{valid},          "valid_service_account_id: 6-char minimum"
+assert_ok GCP::valid_service_account_id("deploy-bot-01")->{valid},   "valid_service_account_id: letters/digits/hyphens"
+assert_eq GCP::valid_service_account_id("svc")->{valid}, 0,          "valid_service_account_id: under 6 chars rejected"
+assert_eq GCP::valid_service_account_id("1service")->{valid}, 0,     "valid_service_account_id: must start with a letter"
+assert_eq GCP::valid_service_account_id("service-")->{valid}, 0,     "valid_service_account_id: trailing hyphen rejected (RFC1035)"
+assert_eq GCP::valid_service_account_id("My_Service")->{valid}, 0,   "valid_service_account_id: uppercase/underscore rejected"
+assert_dies fn { GCP::valid_service_account_id() }, "valid_service_account_id: dies on missing id"
+
 # valid_dataset_id: BigQuery dataset naming rules.
 assert_ok GCP::valid_dataset_id("my_dataset")->{valid},     "valid_dataset_id: letters/digits/underscores"
 assert_ok GCP::valid_dataset_id("MyDataset2025")->{valid},  "valid_dataset_id: case preserved"

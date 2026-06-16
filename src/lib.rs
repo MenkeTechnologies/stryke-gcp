@@ -1636,6 +1636,39 @@ fn op_region_for_zone(opts: Value) -> Result<Value> {
     Ok(json!({"zone": zone, "region": region, "zone_letter": letter}))
 }
 
+/// Validate a GCP service-account ID — the `<id>` part before the `@` in a
+/// service-account email. Per the IAM `accountId` rules it is 6-30 characters,
+/// RFC1035-compliant: only lowercase letters, digits and hyphens, must start with
+/// a lowercase letter, and must not end with a hyphen. The IAM member of the
+/// `valid_*` family, mirroring its `{valid, reason}` shape. opts: `id` (or
+/// `account_id`/`name`/`value`, required). Returns `{id, valid, reason}`. Pure.
+fn op_valid_service_account_id(opts: Value) -> Result<Value> {
+    let id = opts
+        .get("id")
+        .or_else(|| opts.get("account_id"))
+        .or_else(|| opts.get("name"))
+        .or_else(|| opts.get("value"))
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("missing id"))?;
+    let bytes = id.as_bytes();
+    let len = bytes.len();
+    let reason: Option<&str> = if !(6..=30).contains(&len) {
+        Some("must be 6-30 characters")
+    } else if !id
+        .bytes()
+        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+    {
+        Some("only lowercase letters, digits, and hyphens")
+    } else if !bytes[0].is_ascii_lowercase() {
+        Some("must start with a lowercase letter")
+    } else if bytes[len - 1] == b'-' {
+        Some("must not end with a hyphen")
+    } else {
+        None
+    };
+    Ok(json!({"id": id, "valid": reason.is_none(), "reason": reason}))
+}
+
 /// Validate a GCP resource label `key`/`value` pair against the Resource Manager
 /// rules: a key is 1-63 characters, must start with a lowercase letter (or an
 /// international character), and contains only lowercase letters, digits, `_`,
@@ -1977,6 +2010,14 @@ pub extern "C" fn gcp__valid_label(args: *const c_char) -> *const c_char {
 #[no_mangle]
 pub extern "C" fn gcp__valid_pubsub_id(args: *const c_char) -> *const c_char {
     ffi_call_async(args, |opts| async move { op_valid_pubsub_id(opts) })
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__valid_service_account_id(args: *const c_char) -> *const c_char {
+    ffi_call_async(
+        args,
+        |opts| async move { op_valid_service_account_id(opts) },
+    )
 }
 
 #[no_mangle]
@@ -2983,6 +3024,48 @@ mod tests {
             json!(true)
         );
         assert!(op_valid_pubsub_id(json!({})).is_err());
+    }
+
+    #[test]
+    fn valid_service_account_id_enforces_iam_account_id_rules() {
+        let chk = |id: &str| op_valid_service_account_id(json!({ "id": id })).unwrap();
+        // Valid: 6-30 chars, lowercase/digit/hyphen, starts with a letter.
+        assert_eq!(chk("my-svc")["valid"], json!(true), "6 chars is the min");
+        assert_eq!(chk("deploy-bot-01")["valid"], json!(true));
+        assert_eq!(
+            chk(&"a".repeat(30))["valid"],
+            json!(true),
+            "30 chars is the max"
+        );
+        // Length bounds.
+        assert_eq!(chk("svc")["valid"], json!(false), "5 chars is too short");
+        assert!(chk("abc")["reason"].as_str().unwrap().contains("6-30"));
+        assert_eq!(chk(&"a".repeat(31))["valid"], json!(false));
+        // Must start with a lowercase letter (not a digit or hyphen).
+        let dig = chk("1service");
+        assert_eq!(dig["valid"], json!(false));
+        assert!(dig["reason"]
+            .as_str()
+            .unwrap()
+            .contains("start with a lowercase letter"));
+        assert_eq!(chk("-service")["valid"], json!(false));
+        // Must not end with a hyphen (RFC1035).
+        let trail = chk("service-");
+        assert_eq!(trail["valid"], json!(false));
+        assert!(trail["reason"]
+            .as_str()
+            .unwrap()
+            .contains("end with a hyphen"));
+        // Disallowed characters: uppercase, underscore, dot.
+        for bad in ["MyService", "my_service", "my.service", "my svc"] {
+            assert_eq!(chk(bad)["valid"], json!(false), "`{bad}` should be invalid");
+        }
+        // `account_id` alias and the missing-arg error.
+        assert_eq!(
+            op_valid_service_account_id(json!({"account_id": "billing-export"})).unwrap()["valid"],
+            json!(true)
+        );
+        assert!(op_valid_service_account_id(json!({})).is_err());
     }
 
     #[test]
