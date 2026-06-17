@@ -169,6 +169,7 @@ GCP::build_gs_uri($b, $obj?)   → $uri        # bucket+object → gs:// URI; in
 GCP::gs_uri_to_url($uri)       → { url, bucket, object }   # gs://b/o → https://storage.googleapis.com/b/o
 GCP::url_to_gs_uri($url)       → { uri, bucket, object }   # GCS URL (path/virtual-hosted) → gs://b/o; inverse of gs_uri_to_url
 GCP::parse_resource_name($n)   → { parts, pairs:{collection=>id}, trailing }   # projects/p/topics/t
+GCP::resource_name_parent($n)  → { name, parent, has_parent, collection, id }  # hierarchy "dirname": projects/p/locations/l/clusters/c → parent projects/p/locations/l; top-level parent is ""
 GCP::build_resource_name(%opts) → $name   # { parts } or { pairs, trailing } → resource name; inverse of parse_resource_name
 GCP::parse_table_ref($ref) → { table_ref, project, dataset, table, legacy }   # BigQuery project.dataset.table (standard) or project:dataset.table (legacy)
 GCP::build_table_ref(%opts) → { table_ref, project, dataset, table, legacy }   # inverse: {dataset,table[,project,legacy]} → reference string (round-trips parse_table_ref)

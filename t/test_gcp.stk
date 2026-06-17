@@ -92,6 +92,17 @@ assert_eq GCP::build_resource_name(pairs => [["projects", "p"], ["secrets", "s"]
 assert_eq GCP::build_resource_name(%{ GCP::parse_resource_name("projects/my-proj/topics/orders") }), "projects/my-proj/topics/orders", "build_resource_name: round-trips parse via parts"
 assert_dies fn { GCP::build_resource_name(parts => ["a/b", "c"]) }, "build_resource_name: rejects a segment containing '/'"
 
+# resource_name_parent: the GCP hierarchy "dirname".
+val $par = GCP::resource_name_parent("projects/p/locations/l/clusters/c")
+assert_eq $par->{parent},     "projects/p/locations/l", "resource_name_parent: drops the leaf pair"
+assert_eq $par->{collection}, "clusters",               "resource_name_parent: leaf collection"
+assert_eq $par->{id},         "c",                      "resource_name_parent: leaf id"
+assert_eq $par->{has_parent}, 1,                        "resource_name_parent: nested has a parent"
+val $top = GCP::resource_name_parent("projects/my-proj")
+assert_eq $top->{parent},     "",                       "resource_name_parent: top-level parent is empty"
+assert_eq $top->{has_parent}, 0,                        "resource_name_parent: top-level has no parent"
+assert_dies fn { GCP::resource_name_parent("projects/p/secrets") }, "resource_name_parent: rejects a dangling collection"
+
 # parse_table_ref: BigQuery fully-qualified table reference (standard vs legacy).
 val $std = GCP::parse_table_ref("my-proj.sales.orders")
 assert_eq $std->{project}, "my-proj", "parse_table_ref: standard project"

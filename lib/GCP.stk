@@ -305,6 +305,16 @@ fn GCP::parse_resource_name ($name) {
     GCP::_decode("parse_resource_name", gcp__parse_resource_name(to_json({ name => $name })))
 }
 
+## The parent of a GCP relative resource name — the hierarchy "dirname" that drops
+## the trailing collection/id pair. "projects/p/locations/l/clusters/c" → parent
+## "projects/p/locations/l", leaf collection "clusters", id "c". A top-level
+## resource ("projects/p") has an empty parent and has_parent false; a dangling
+## collection (odd segment count) dies. Returns a hashref
+## { name, parent, has_parent, collection, id }.
+fn GCP::resource_name_parent ($name) {
+    GCP::_decode("resource_name_parent", gcp__resource_name_parent(to_json({ name => $name })))
+}
+
 ## Assemble a GCP resource name from parts — inverse of parse_resource_name.
 ## %opts: parts (flat arrayref, exact inverse) OR pairs (arrayref of
 ## [collection, id] or { collection, id }) plus an optional trailing segment.

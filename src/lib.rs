@@ -1368,6 +1368,39 @@ fn op_parse_resource_name(opts: Value) -> Result<Value> {
     }))
 }
 
+/// The parent of a GCP relative resource name — the hierarchy "dirname" that
+/// drops the trailing `{collection}/{id}` pair. `projects/p/locations/l/clusters/c`
+/// → parent `projects/p/locations/l`, leaf collection `clusters`, id `c`. A
+/// top-level resource (`projects/p`) has an empty parent and `has_parent` false.
+/// A relative resource name is a sequence of collection/id pairs, so an odd
+/// segment count (a dangling collection without an id) is rejected. Useful for
+/// walking IAM inheritance / resource ancestry. opts: `name` (or `resource`,
+/// required). Returns `{name, parent, has_parent, collection, id}`. Pure.
+fn op_resource_name_parent(opts: Value) -> Result<Value> {
+    let name = opts
+        .get("name")
+        .or_else(|| opts.get("resource"))
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("missing name"))?;
+    let parts: Vec<&str> = name.split('/').filter(|s| !s.is_empty()).collect();
+    if parts.len() < 2 || !parts.len().is_multiple_of(2) {
+        return Err(anyhow!(
+            "not a relative resource name (expected `collection/id` pairs): `{name}`"
+        ));
+    }
+    let collection = parts[parts.len() - 2];
+    let id = parts[parts.len() - 1];
+    let parent_parts = &parts[..parts.len() - 2];
+    let parent = parent_parts.join("/");
+    Ok(json!({
+        "name": name,
+        "parent": parent,
+        "has_parent": !parent_parts.is_empty(),
+        "collection": collection,
+        "id": id,
+    }))
+}
+
 /// Assemble a GCP resource name `collection/id/collection/id…` from parts — the
 /// inverse of `parse_resource_name`. Accepts either a flat `parts` array (the
 /// exact inverse of the parsed `parts`) or ordered `pairs` — each a
@@ -1994,6 +2027,11 @@ pub extern "C" fn gcp__url_to_gs_uri(args: *const c_char) -> *const c_char {
 #[no_mangle]
 pub extern "C" fn gcp__parse_resource_name(args: *const c_char) -> *const c_char {
     ffi_call_async(args, |opts| async move { op_parse_resource_name(opts) })
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__resource_name_parent(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, |opts| async move { op_resource_name_parent(opts) })
 }
 
 #[no_mangle]
@@ -2751,6 +2789,35 @@ mod tests {
         let odd = op_parse_resource_name(json!({"name": "projects/p/secrets"})).unwrap();
         assert_eq!(odd["pairs"]["projects"], json!("p"));
         assert_eq!(odd["trailing"], json!("secrets"));
+    }
+
+    #[test]
+    fn resource_name_parent_drops_the_leaf_pair() {
+        // A nested resource: parent strips the trailing collection/id pair.
+        let v = op_resource_name_parent(json!({
+            "name": "projects/p/locations/l/clusters/c"
+        }))
+        .unwrap();
+        assert_eq!(v["parent"], json!("projects/p/locations/l"));
+        assert_eq!(v["collection"], json!("clusters"));
+        assert_eq!(v["id"], json!("c"));
+        assert_eq!(v["has_parent"], json!(true));
+        // A top-level resource has an empty parent.
+        let top = op_resource_name_parent(json!({"name": "projects/my-proj"})).unwrap();
+        assert_eq!(top["parent"], json!(""));
+        assert_eq!(top["has_parent"], json!(false));
+        assert_eq!(top["collection"], json!("projects"));
+        assert_eq!(top["id"], json!("my-proj"));
+        // Leading/trailing slashes are tolerated; `resource` is an alias.
+        assert_eq!(
+            op_resource_name_parent(json!({"resource": "/projects/p/topics/t/"})).unwrap()
+                ["parent"],
+            json!("projects/p")
+        );
+        // A dangling collection (odd segment count) and missing arg error.
+        assert!(op_resource_name_parent(json!({"name": "projects/p/secrets"})).is_err());
+        assert!(op_resource_name_parent(json!({"name": ""})).is_err());
+        assert!(op_resource_name_parent(json!({})).is_err());
     }
 
     #[test]
