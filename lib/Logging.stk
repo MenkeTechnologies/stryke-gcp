@@ -1,0 +1,25 @@
+## lib/Logging.stk — `use GCP::Logging`
+##
+## Wraps `GCP::logging_*` from the cdylib (Cloud Logging API v2).
+
+package GCP::Logging
+
+use GCP
+
+## List recent log entries — array of
+## { timestamp, severity, log_name, text_payload, json_payload }.
+## opts: filter, page_size (default 50), order ("asc"/"desc", default desc).
+fn GCP::Logging::entries (%opts) {
+    GCP::logging_list_entries(%opts)
+}
+
+## Write a single entry to $log. opts: text => $str OR json => \%payload,
+## severity (default "DEFAULT"). Returns { log, written }.
+fn GCP::Logging::write ($log, %opts) {
+    GCP::logging_write_entry($log, %opts)
+}
+
+## List the log ids that have entries in the project — array of strings.
+fn GCP::Logging::logs (%opts) {
+    GCP::logging_list_logs(%opts)
+}

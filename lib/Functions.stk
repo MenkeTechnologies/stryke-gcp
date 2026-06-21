@@ -1,0 +1,18 @@
+## lib/Functions.stk — `use GCP::Functions`
+##
+## Wraps `GCP::functions_*` from the cdylib (Cloud Functions API v2).
+
+package GCP::Functions
+
+use GCP
+
+## List functions in $opts{region} (default "-" = all regions) — array of
+## { name, state, url }.
+fn GCP::Functions::list (%opts) {
+    GCP::functions_list(%opts)
+}
+
+## Describe one function in $region. Returns { region, function, resource }.
+fn GCP::Functions::describe ($region, $function, %opts) {
+    GCP::functions_describe($region, $function, %opts)
+}

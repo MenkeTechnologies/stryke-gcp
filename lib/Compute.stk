@@ -1,0 +1,37 @@
+## lib/Compute.stk — `use GCP::Compute`
+##
+## Wraps `GCP::compute_*` from the cdylib (Compute Engine REST v1).
+
+package GCP::Compute
+
+use GCP
+
+## List instances in $zone — array of { name, status, machine_type, zone }.
+fn GCP::Compute::instances ($zone, %opts) {
+    GCP::compute_list_instances($zone, %opts)
+}
+
+## Get one instance in $zone. Returns { zone, instance, resource }.
+fn GCP::Compute::get ($zone, $instance, %opts) {
+    GCP::compute_get_instance($zone, $instance, %opts)
+}
+
+## Start a stopped instance.
+fn GCP::Compute::start ($zone, $instance, %opts) {
+    GCP::compute_start_instance($zone, $instance, %opts)
+}
+
+## Stop a running instance.
+fn GCP::Compute::stop ($zone, $instance, %opts) {
+    GCP::compute_stop_instance($zone, $instance, %opts)
+}
+
+## Hard-reset an instance.
+fn GCP::Compute::reset ($zone, $instance, %opts) {
+    GCP::compute_reset_instance($zone, $instance, %opts)
+}
+
+## List the zones available to the project — array of { name, region, status }.
+fn GCP::Compute::zones (%opts) {
+    GCP::compute_list_zones(%opts)
+}

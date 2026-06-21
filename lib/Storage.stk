@@ -84,3 +84,13 @@ fn GCP::Storage::compose ($bucket, $destination, $sources, %opts) {
     GCP::gcs_compose($bucket, $destination, $sources, %opts)
 }
 
+## Get $bucket's IAM policy. Returns the policy hashref.
+fn GCP::Storage::get_iam_policy ($bucket, %opts) {
+    GCP::gcs_get_iam_policy($bucket, %opts)
+}
+
+## Set $bucket's IAM policy to $policy (hashref). Returns the applied policy.
+fn GCP::Storage::set_iam_policy ($bucket, $policy, %opts) {
+    GCP::gcs_set_iam_policy($bucket, $policy, %opts)
+}
+

@@ -26,6 +26,25 @@ if ($alive) {
     val @bs = GCP::Storage::buckets()
     assert_ok 1, "Storage::buckets returns without dying (saw " . scalar(@bs) . ")"
 
+    # ── new-service read-only probes (low blast radius) ──────────
+    # Each may legitimately fail if the relevant API is not enabled on
+    # the project; we only assert the wrapper round-trips when it does
+    # not die, mirroring the buckets probe above.
+    val @zs = eval { GCP::compute_list_zones() }
+    assert_ok 1, "compute_list_zones returns without dying (saw " . scalar(@zs) . ")" if defined @zs
+
+    val @ds = eval { GCP::bigquery_list_datasets() }
+    assert_ok 1, "bigquery_list_datasets returns without dying (saw " . scalar(@ds) . ")" if defined @ds
+
+    val @secs = eval { GCP::secret_list() }
+    assert_ok 1, "secret_list returns without dying (saw " . scalar(@secs) . ")" if defined @secs
+
+    val @sas = eval { GCP::iam_list_service_accounts() }
+    assert_ok 1, "iam_list_service_accounts returns without dying (saw " . scalar(@sas) . ")" if defined @sas
+
+    val @logs = eval { GCP::logging_list_logs() }
+    assert_ok 1, "logging_list_logs returns without dying (saw " . scalar(@logs) . ")" if defined @logs
+
     # ── GCS round-trip ───────────────────────────────────────────
     val $bucket = $ENV{STRYKE_GCP_TEST_BUCKET}
     if (defined $bucket) {

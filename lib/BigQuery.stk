@@ -21,3 +21,23 @@ fn GCP::BigQuery::rows ($sql, %opts) {
 fn GCP::BigQuery::insert ($dataset, $table, $rows, %opts) {
     GCP::bigquery_insert($dataset, $table, $rows, %opts)
 }
+
+## List dataset ids in the project — array of strings.
+fn GCP::BigQuery::datasets (%opts) {
+    GCP::bigquery_list_datasets(%opts)
+}
+
+## Get one dataset's metadata. Returns { dataset, resource }.
+fn GCP::BigQuery::dataset ($dataset, %opts) {
+    GCP::bigquery_get_dataset($dataset, %opts)
+}
+
+## List table ids in $dataset — array of strings.
+fn GCP::BigQuery::tables ($dataset, %opts) {
+    GCP::bigquery_list_tables($dataset, %opts)
+}
+
+## Get one table's metadata. Returns { dataset, table, resource }.
+fn GCP::BigQuery::table ($dataset, $table, %opts) {
+    GCP::bigquery_get_table($dataset, $table, %opts)
+}

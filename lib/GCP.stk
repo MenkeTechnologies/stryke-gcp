@@ -269,6 +269,196 @@ fn GCP::firestore_create ($collection, $data, %opts) {
     GCP::_decode("firestore_create", gcp__firestore_create(to_json($r)))
 }
 
+# ── Compute Engine ────────────────────────────────────────────────────
+
+## List Compute Engine instances in $zone. Returns an array of
+## { name, status, machine_type, zone } hashrefs.
+fn GCP::compute_list_instances ($zone, %opts) {
+    val $r = GCP::_req({ zone => $zone }, \%opts)
+    @{ GCP::_decode("compute_list_instances", gcp__compute_list_instances(to_json($r)))->{instances} }
+}
+
+## Get one Compute Engine instance in $zone. Returns { zone, instance, resource }.
+fn GCP::compute_get_instance ($zone, $instance, %opts) {
+    val $r = GCP::_req({ zone => $zone, instance => $instance }, \%opts)
+    GCP::_decode("compute_get_instance", gcp__compute_get_instance(to_json($r)))
+}
+
+## Start a stopped instance. Returns { instance, action, operation, status }.
+fn GCP::compute_start_instance ($zone, $instance, %opts) {
+    val $r = GCP::_req({ zone => $zone, instance => $instance }, \%opts)
+    GCP::_decode("compute_start_instance", gcp__compute_start_instance(to_json($r)))
+}
+
+## Stop a running instance. Returns { instance, action, operation, status }.
+fn GCP::compute_stop_instance ($zone, $instance, %opts) {
+    val $r = GCP::_req({ zone => $zone, instance => $instance }, \%opts)
+    GCP::_decode("compute_stop_instance", gcp__compute_stop_instance(to_json($r)))
+}
+
+## Hard-reset an instance. Returns { instance, action, operation, status }.
+fn GCP::compute_reset_instance ($zone, $instance, %opts) {
+    val $r = GCP::_req({ zone => $zone, instance => $instance }, \%opts)
+    GCP::_decode("compute_reset_instance", gcp__compute_reset_instance(to_json($r)))
+}
+
+## List the Compute Engine zones available to the project. Returns an array of
+## { name, region, status } hashrefs.
+fn GCP::compute_list_zones (%opts) {
+    @{ GCP::_decode("compute_list_zones", gcp__compute_list_zones(to_json(GCP::_req({}, \%opts))))->{zones} }
+}
+
+# ── Cloud Run ─────────────────────────────────────────────────────────
+
+## List Cloud Run services in $region. Returns an array of
+## { name, uri, latest_revision } hashrefs.
+fn GCP::run_list_services ($region, %opts) {
+    val $r = GCP::_req({ region => $region }, \%opts)
+    @{ GCP::_decode("run_list_services", gcp__run_list_services(to_json($r)))->{services} }
+}
+
+## Get one Cloud Run service. Returns { region, service, resource }.
+fn GCP::run_get_service ($region, $service, %opts) {
+    val $r = GCP::_req({ region => $region, service => $service }, \%opts)
+    GCP::_decode("run_get_service", gcp__run_get_service(to_json($r)))
+}
+
+## List the revisions of a Cloud Run service. Returns an array of
+## { name, create_time } hashrefs.
+fn GCP::run_list_revisions ($region, $service, %opts) {
+    val $r = GCP::_req({ region => $region, service => $service }, \%opts)
+    @{ GCP::_decode("run_list_revisions", gcp__run_list_revisions(to_json($r)))->{revisions} }
+}
+
+# ── Cloud Functions ───────────────────────────────────────────────────
+
+## List Cloud Functions in $region (use "-" for all regions, the default).
+## Returns an array of { name, state, url } hashrefs.
+fn GCP::functions_list (%opts) {
+    val $r = GCP::_req({ region => ($opts{region} // "-") }, \%opts)
+    @{ GCP::_decode("functions_list", gcp__functions_list(to_json($r)))->{functions} }
+}
+
+## Describe one Cloud Function. Returns { region, function, resource }.
+fn GCP::functions_describe ($region, $function, %opts) {
+    val $r = GCP::_req({ region => $region, function => $function }, \%opts)
+    GCP::_decode("functions_describe", gcp__functions_describe(to_json($r)))
+}
+
+# ── Cloud Logging ─────────────────────────────────────────────────────
+
+## List recent log entries. opts: filter, page_size (default 50), order
+## ("asc"/"desc", default desc). Returns an array of
+## { timestamp, severity, log_name, text_payload, json_payload } hashrefs.
+fn GCP::logging_list_entries (%opts) {
+    val $r = GCP::_req(
+        { filter => $opts{filter}, page_size => $opts{page_size}, order => $opts{order} }, \%opts)
+    @{ GCP::_decode("logging_list_entries", gcp__logging_list_entries(to_json($r)))->{entries} }
+}
+
+## Write a single log entry to $log. opts: text => $str OR json => \%payload,
+## severity (default "DEFAULT"). Returns { log, written }.
+fn GCP::logging_write_entry ($log, %opts) {
+    val $r = GCP::_req(
+        { log => $log, text => $opts{text}, json => $opts{json}, severity => $opts{severity} }, \%opts)
+    GCP::_decode("logging_write_entry", gcp__logging_write_entry(to_json($r)))
+}
+
+## List the log ids that have entries in the project. Returns an array of strings.
+fn GCP::logging_list_logs (%opts) {
+    @{ GCP::_decode("logging_list_logs", gcp__logging_list_logs(to_json(GCP::_req({}, \%opts))))->{logs} }
+}
+
+# ── Cloud Monitoring ──────────────────────────────────────────────────
+
+## List time series matching $filter over [$start, $end] (RFC3339). Returns an
+## array of time-series hashrefs.
+fn GCP::monitoring_list_time_series ($filter, $start, $end, %opts) {
+    val $r = GCP::_req({ filter => $filter, start => $start, end => $end }, \%opts)
+    @{ GCP::_decode("monitoring_list_time_series", gcp__monitoring_list_time_series(to_json($r)))->{time_series} }
+}
+
+## List the metric descriptors visible to the project. opt filter. Returns an
+## array of { type, display_name, kind, value_type } hashrefs.
+fn GCP::monitoring_list_metric_descriptors (%opts) {
+    val $r = GCP::_req({ filter => $opts{filter} }, \%opts)
+    @{ GCP::_decode("monitoring_list_metric_descriptors", gcp__monitoring_list_metric_descriptors(to_json($r)))->{descriptors} }
+}
+
+# ── Secret Manager (list) ─────────────────────────────────────────────
+
+## List the secret ids in the project. Returns an array of strings.
+fn GCP::secret_list (%opts) {
+    @{ GCP::_decode("secret_list", gcp__secret_list(to_json(GCP::_req({}, \%opts))))->{secrets} }
+}
+
+# ── IAM ───────────────────────────────────────────────────────────────
+
+## Get the IAM policy at a full :getIamPolicy $url. Returns the policy hashref.
+fn GCP::iam_get_policy ($url, %opts) {
+    GCP::_decode("iam_get_policy", gcp__iam_get_policy(to_json({ url => $url })))->{policy}
+}
+
+## Test which of $permissions (arrayref) the caller holds at a full
+## :testIamPermissions $url. Returns the granted-permission array.
+fn GCP::iam_test_permissions ($url, $permissions, %opts) {
+    die "GCP::iam_test_permissions: permissions must be an arrayref" unless ref($permissions) eq "ARRAY"
+    @{ GCP::_decode("iam_test_permissions",
+        gcp__iam_test_permissions(to_json({ url => $url, permissions => $permissions })))->{permissions} }
+}
+
+## List the service accounts in the project. Returns an array of
+## { email, display_name, unique_id } hashrefs.
+fn GCP::iam_list_service_accounts (%opts) {
+    @{ GCP::_decode("iam_list_service_accounts", gcp__iam_list_service_accounts(to_json(GCP::_req({}, \%opts))))->{service_accounts} }
+}
+
+## Get one service account by $email. Returns { email, resource }.
+fn GCP::iam_get_service_account ($email, %opts) {
+    val $r = GCP::_req({ email => $email }, \%opts)
+    GCP::_decode("iam_get_service_account", gcp__iam_get_service_account(to_json($r)))
+}
+
+# ── BigQuery (datasets + tables) ──────────────────────────────────────
+
+## List datasets in the project. Returns an array of dataset id strings.
+fn GCP::bigquery_list_datasets (%opts) {
+    @{ GCP::_decode("bigquery_list_datasets", gcp__bigquery_list_datasets(to_json(GCP::_req({}, \%opts))))->{datasets} }
+}
+
+## Get one dataset's metadata. Returns { dataset, resource }.
+fn GCP::bigquery_get_dataset ($dataset, %opts) {
+    val $r = GCP::_req({ dataset => $dataset }, \%opts)
+    GCP::_decode("bigquery_get_dataset", gcp__bigquery_get_dataset(to_json($r)))
+}
+
+## List tables in $dataset. Returns an array of table id strings.
+fn GCP::bigquery_list_tables ($dataset, %opts) {
+    val $r = GCP::_req({ dataset => $dataset }, \%opts)
+    @{ GCP::_decode("bigquery_list_tables", gcp__bigquery_list_tables(to_json($r)))->{tables} }
+}
+
+## Get one table's metadata. Returns { dataset, table, resource }.
+fn GCP::bigquery_get_table ($dataset, $table, %opts) {
+    val $r = GCP::_req({ dataset => $dataset, table => $table }, \%opts)
+    GCP::_decode("bigquery_get_table", gcp__bigquery_get_table(to_json($r)))
+}
+
+# ── GCS IAM ───────────────────────────────────────────────────────────
+
+## Get $bucket's IAM policy. Returns the policy hashref.
+fn GCP::gcs_get_iam_policy ($bucket, %opts) {
+    val $r = GCP::_req({ bucket => $bucket }, \%opts)
+    GCP::_decode("gcs_get_iam_policy", gcp__gcs_get_iam_policy(to_json($r)))->{policy}
+}
+
+## Set $bucket's IAM policy to $policy (hashref). Returns the applied policy.
+fn GCP::gcs_set_iam_policy ($bucket, $policy, %opts) {
+    die "GCP::gcs_set_iam_policy: policy must be a hashref" unless ref($policy) eq "HASH"
+    val $r = GCP::_req({ bucket => $bucket, policy => $policy }, \%opts)
+    GCP::_decode("gcs_set_iam_policy", gcp__gcs_set_iam_policy(to_json($r)))->{policy}
+}
+
 # ── pure helpers (no GCP) ─────────────────────────────────────────────
 
 ## Parse a "gs://bucket/object" URI into a hashref { bucket, object } (object

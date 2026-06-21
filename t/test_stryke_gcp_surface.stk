@@ -19,6 +19,12 @@ use GCP::PubSub
 use GCP::Storage
 use GCP::BigQuery
 use GCP::Firestore
+use GCP::Compute
+use GCP::Run
+use GCP::Functions
+use GCP::Logging
+use GCP::Monitoring
+use GCP::IAM
 
 # ── GCP.stk ──────────────────────────────────────────────
 assert_ok exists &GCP::version, "GCP::version exists"
@@ -109,5 +115,76 @@ assert_ok exists &GCP::valid_service_account_id, "GCP::valid_service_account_id 
 assert_ok exists &GCP::valid_secret_id, "GCP::valid_secret_id exists"
 assert_ok exists &GCP::valid_dataset_id, "GCP::valid_dataset_id exists"
 assert_ok exists &GCP::valid_table_id, "GCP::valid_table_id exists"
+
+# ── new-service flat fns (GCP.stk) ──
+assert_ok exists &GCP::compute_list_instances, "GCP::compute_list_instances exists"
+assert_ok exists &GCP::compute_get_instance, "GCP::compute_get_instance exists"
+assert_ok exists &GCP::compute_start_instance, "GCP::compute_start_instance exists"
+assert_ok exists &GCP::compute_stop_instance, "GCP::compute_stop_instance exists"
+assert_ok exists &GCP::compute_reset_instance, "GCP::compute_reset_instance exists"
+assert_ok exists &GCP::compute_list_zones, "GCP::compute_list_zones exists"
+assert_ok exists &GCP::run_list_services, "GCP::run_list_services exists"
+assert_ok exists &GCP::run_get_service, "GCP::run_get_service exists"
+assert_ok exists &GCP::run_list_revisions, "GCP::run_list_revisions exists"
+assert_ok exists &GCP::functions_list, "GCP::functions_list exists"
+assert_ok exists &GCP::functions_describe, "GCP::functions_describe exists"
+assert_ok exists &GCP::logging_list_entries, "GCP::logging_list_entries exists"
+assert_ok exists &GCP::logging_write_entry, "GCP::logging_write_entry exists"
+assert_ok exists &GCP::logging_list_logs, "GCP::logging_list_logs exists"
+assert_ok exists &GCP::monitoring_list_time_series, "GCP::monitoring_list_time_series exists"
+assert_ok exists &GCP::monitoring_list_metric_descriptors, "GCP::monitoring_list_metric_descriptors exists"
+assert_ok exists &GCP::secret_list, "GCP::secret_list exists"
+assert_ok exists &GCP::iam_get_policy, "GCP::iam_get_policy exists"
+assert_ok exists &GCP::iam_test_permissions, "GCP::iam_test_permissions exists"
+assert_ok exists &GCP::iam_list_service_accounts, "GCP::iam_list_service_accounts exists"
+assert_ok exists &GCP::iam_get_service_account, "GCP::iam_get_service_account exists"
+assert_ok exists &GCP::bigquery_list_datasets, "GCP::bigquery_list_datasets exists"
+assert_ok exists &GCP::bigquery_get_dataset, "GCP::bigquery_get_dataset exists"
+assert_ok exists &GCP::bigquery_list_tables, "GCP::bigquery_list_tables exists"
+assert_ok exists &GCP::bigquery_get_table, "GCP::bigquery_get_table exists"
+assert_ok exists &GCP::gcs_get_iam_policy, "GCP::gcs_get_iam_policy exists"
+assert_ok exists &GCP::gcs_set_iam_policy, "GCP::gcs_set_iam_policy exists"
+
+# ── Compute.stk ──
+assert_ok exists &GCP::Compute::instances, "GCP::Compute::instances exists"
+assert_ok exists &GCP::Compute::get, "GCP::Compute::get exists"
+assert_ok exists &GCP::Compute::start, "GCP::Compute::start exists"
+assert_ok exists &GCP::Compute::stop, "GCP::Compute::stop exists"
+assert_ok exists &GCP::Compute::reset, "GCP::Compute::reset exists"
+assert_ok exists &GCP::Compute::zones, "GCP::Compute::zones exists"
+
+# ── Run.stk ──
+assert_ok exists &GCP::Run::services, "GCP::Run::services exists"
+assert_ok exists &GCP::Run::get, "GCP::Run::get exists"
+assert_ok exists &GCP::Run::revisions, "GCP::Run::revisions exists"
+
+# ── Functions.stk ──
+assert_ok exists &GCP::Functions::list, "GCP::Functions::list exists"
+assert_ok exists &GCP::Functions::describe, "GCP::Functions::describe exists"
+
+# ── Logging.stk ──
+assert_ok exists &GCP::Logging::entries, "GCP::Logging::entries exists"
+assert_ok exists &GCP::Logging::write, "GCP::Logging::write exists"
+assert_ok exists &GCP::Logging::logs, "GCP::Logging::logs exists"
+
+# ── Monitoring.stk ──
+assert_ok exists &GCP::Monitoring::time_series, "GCP::Monitoring::time_series exists"
+assert_ok exists &GCP::Monitoring::descriptors, "GCP::Monitoring::descriptors exists"
+
+# ── IAM.stk ──
+assert_ok exists &GCP::IAM::get_policy, "GCP::IAM::get_policy exists"
+assert_ok exists &GCP::IAM::test_permissions, "GCP::IAM::test_permissions exists"
+assert_ok exists &GCP::IAM::service_accounts, "GCP::IAM::service_accounts exists"
+assert_ok exists &GCP::IAM::service_account, "GCP::IAM::service_account exists"
+
+# ── BigQuery.stk extras ──
+assert_ok exists &GCP::BigQuery::datasets, "GCP::BigQuery::datasets exists"
+assert_ok exists &GCP::BigQuery::dataset, "GCP::BigQuery::dataset exists"
+assert_ok exists &GCP::BigQuery::tables, "GCP::BigQuery::tables exists"
+assert_ok exists &GCP::BigQuery::table, "GCP::BigQuery::table exists"
+
+# ── Storage.stk extras ──
+assert_ok exists &GCP::Storage::get_iam_policy, "GCP::Storage::get_iam_policy exists"
+assert_ok exists &GCP::Storage::set_iam_policy, "GCP::Storage::set_iam_policy exists"
 
 test_run

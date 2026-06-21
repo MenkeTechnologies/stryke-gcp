@@ -1,0 +1,19 @@
+## lib/Monitoring.stk — `use GCP::Monitoring`
+##
+## Wraps `GCP::monitoring_*` from the cdylib (Cloud Monitoring API v3).
+
+package GCP::Monitoring
+
+use GCP
+
+## List time series matching $filter over [$start, $end] (RFC3339) — array of
+## time-series hashrefs.
+fn GCP::Monitoring::time_series ($filter, $start, $end, %opts) {
+    GCP::monitoring_list_time_series($filter, $start, $end, %opts)
+}
+
+## List metric descriptors visible to the project — array of
+## { type, display_name, kind, value_type }. opt filter.
+fn GCP::Monitoring::descriptors (%opts) {
+    GCP::monitoring_list_metric_descriptors(%opts)
+}

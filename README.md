@@ -12,13 +12,14 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![stryke](https://img.shields.io/badge/stryke-package-cyan.svg)](https://github.com/MenkeTechnologies/strykelang)
 
-### `[GOOGLE CLOUD CLIENT FOR STRYKE // CLOUD STORAGE + PUB/SUB + SECRET MANAGER + BIGQUERY + FIRESTORE]`
+### `[GOOGLE CLOUD CLIENT FOR STRYKE // STORAGE + PUB/SUB + SECRET MANAGER + BIGQUERY + FIRESTORE + COMPUTE + RUN + FUNCTIONS + LOGGING + MONITORING + IAM]`
 
 > *"GCP from the pipe."*
 
 Google Cloud client for stryke — Cloud Storage, Pub/Sub, Secret Manager,
-BigQuery, and Firestore. Opt-in package tier, kept out of the stryke core
-binary so the daily-driver install stays slim.
+BigQuery, Firestore, Compute Engine, Cloud Run, Cloud Functions, Cloud
+Logging, Cloud Monitoring, and IAM. Opt-in package tier, kept out of the
+stryke core binary so the daily-driver install stays slim.
 
 ### [`strykelang`](https://github.com/MenkeTechnologies/strykelang) &middot; [`MenkeTechnologiesMeta`](https://github.com/MenkeTechnologies/MenkeTechnologiesMeta) · [`stryke-aws`](https://github.com/MenkeTechnologies/stryke-aws) · [`stryke-k8s`](https://github.com/MenkeTechnologies/stryke-k8s) · [`stryke-demo`](https://github.com/MenkeTechnologies/stryke-demo)
 
@@ -57,13 +58,18 @@ crates currently impose.
 
 | Service | Status |
 |---|---|
-| Cloud Storage (GCS) | shipped — ls / get / put / rm / head / cp / compose / buckets |
+| Cloud Storage (GCS) | shipped — ls / get / put / rm / head / cp / compose / buckets / get+set IAM policy |
 | Pub/Sub | shipped — publish / pull / ack / list+create+delete topics+subs |
-| Secret Manager | shipped — access / create / add-version |
+| Secret Manager | shipped — access / create / add-version / list |
 | Auth identity | shipped — ADC + project resolution |
-| BigQuery | shipped — query (jobs.query) + streaming insert (REST-only path) |
-| Firestore | shipped — get / set / delete / list (native-mode REST) |
-| Cloud Functions / Run | **deferred** |
+| BigQuery | shipped — query (jobs.query) + streaming insert + list/get datasets + list/get tables |
+| Firestore | shipped — get / set / delete / list / query / create (native-mode REST) |
+| Compute Engine | shipped — list/get instances / start / stop / reset / list zones |
+| Cloud Run | shipped — list/get services / list revisions (Admin API v2) |
+| Cloud Functions | shipped — list / describe (API v2) |
+| Cloud Logging | shipped — list entries / write entry / list logs (API v2) |
+| Cloud Monitoring | shipped — list time series / list metric descriptors (API v3) |
+| IAM | shipped — get policy / test permissions / list+get service accounts |
 
 ## [0x02] Install
 
@@ -241,7 +247,69 @@ encoding (`stringValue`/`integerValue`/…) in both directions. Flat forms are
 `GCP::firestore_get` / `_set` / `_delete` / `_list`.
 
 `use GCP::Storage` also gains `GCP::Storage::compose($bucket, $dst, \@sources)`
-(concatenate objects) — flat form `GCP::gcs_compose`.
+(concatenate objects) plus `GCP::Storage::get_iam_policy($bucket)` /
+`GCP::Storage::set_iam_policy($bucket, \%policy)` — flat forms
+`GCP::gcs_compose` / `GCP::gcs_get_iam_policy` / `GCP::gcs_set_iam_policy`.
+
+### `use GCP::Compute`
+
+```stryke
+GCP::Compute::instances $zone, %opts → @{ {name, status, machine_type, zone} }
+GCP::Compute::get       $zone, $instance, %opts → { zone, instance, resource }
+GCP::Compute::start     $zone, $instance, %opts → { instance, action, operation, status }
+GCP::Compute::stop      $zone, $instance, %opts → { instance, action, operation, status }
+GCP::Compute::reset     $zone, $instance, %opts → { instance, action, operation, status }
+GCP::Compute::zones     %opts → @{ {name, region, status} }
+```
+
+### `use GCP::Run`
+
+```stryke
+GCP::Run::services  $region, %opts → @{ {name, uri, latest_revision} }
+GCP::Run::get       $region, $service, %opts → { region, service, resource }
+GCP::Run::revisions $region, $service, %opts → @{ {name, create_time} }
+```
+
+### `use GCP::Functions`
+
+```stryke
+GCP::Functions::list     %opts → @{ {name, state, url} }   # opt region (default "-" = all)
+GCP::Functions::describe $region, $function, %opts → { region, function, resource }
+```
+
+### `use GCP::Logging`
+
+```stryke
+GCP::Logging::entries %opts → @{ {timestamp, severity, log_name, text_payload, json_payload} }
+                                              # opts: filter, page_size (50), order (asc/desc)
+GCP::Logging::write   $log, %opts → { log, written }   # opts: text=>$str | json=>\%payload, severity
+GCP::Logging::logs    %opts → @log_ids
+```
+
+### `use GCP::Monitoring`
+
+```stryke
+GCP::Monitoring::time_series $filter, $start, $end, %opts → @series   # interval is RFC3339
+GCP::Monitoring::descriptors %opts → @{ {type, display_name, kind, value_type} }   # opt filter
+```
+
+### `use GCP::IAM`
+
+```stryke
+GCP::IAM::get_policy       $url, %opts → \%policy          # full :getIamPolicy endpoint
+GCP::IAM::test_permissions $url, \@perms, %opts → @granted # full :testIamPermissions endpoint
+GCP::IAM::service_accounts %opts → @{ {email, display_name, unique_id} }
+GCP::IAM::service_account  $email, %opts → { email, resource }
+```
+
+### `use GCP::BigQuery` — datasets & tables
+
+```stryke
+GCP::BigQuery::datasets %opts → @dataset_ids
+GCP::BigQuery::dataset  $dataset, %opts → { dataset, resource }
+GCP::BigQuery::tables   $dataset, %opts → @table_ids
+GCP::BigQuery::table    $dataset, $table, %opts → { dataset, table, resource }
+```
 
 ### `use GCP` — Secret Manager
 
@@ -249,6 +317,7 @@ encoding (`stringValue`/`integerValue`/…) in both directions. Flat forms are
 GCP::secret_access      $secret, %opts → $value    # opts: version (default "latest")
 GCP::secret_create      $secret, %opts → \%resp    # new empty secret, automatic replication
 GCP::secret_add_version $secret, $value, %opts → \%resp
+GCP::secret_list        %opts → @secret_ids
 ```
 
 Topic / subscription names accept bare (`my-topic`) or fully qualified
@@ -262,7 +331,9 @@ Each `GCP::*` wrapper builds a JSON args dict and calls a sibling
 is dlopened in-process on first `use GCP` (via stryke's
 `pkg::commands::try_load_ffi_for` resolver hook) and exposes the entry
 points listed in the `[ffi]` exports table in `stryke.toml`, spanning
-identity, GCS, and Pub/Sub.
+identity, GCS, Pub/Sub, Secret Manager, BigQuery, Firestore, Compute
+Engine, Cloud Run, Cloud Functions, Cloud Logging, Cloud Monitoring,
+and IAM.
 
 **Persistent state:** a shared tokio runtime + `reqwest::Client` +
 cached ADC credentials held in `OnceCell` — no fork-per-call, no
@@ -307,11 +378,17 @@ stryke-gcp/
   src/
     lib.rs                         # cdylib — gcp__* extern "C" exports
   lib/
-    GCP.stk                        # `use GCP` — plumbing + ping + identity
+    GCP.stk                        # `use GCP` — plumbing + ping + identity + flat ops
     Storage.stk                    # `use GCP::Storage`
     PubSub.stk                     # `use GCP::PubSub`
     BigQuery.stk                   # `use GCP::BigQuery`
     Firestore.stk                  # `use GCP::Firestore`
+    Compute.stk                    # `use GCP::Compute`
+    Run.stk                        # `use GCP::Run`
+    Functions.stk                  # `use GCP::Functions`
+    Logging.stk                    # `use GCP::Logging`
+    Monitoring.stk                 # `use GCP::Monitoring`
+    IAM.stk                        # `use GCP::IAM`
   t/
     test_gcp.stk                   # end-to-end (gated on ADC + opt-in env vars)
     test_stryke_gcp_surface.stk    # wrapper-completeness pin

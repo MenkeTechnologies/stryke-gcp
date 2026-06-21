@@ -1172,6 +1172,817 @@ async fn op_firestore_create(opts: Value) -> Result<Value> {
     Ok(json!({ "collection": collection, "id": id }))
 }
 
+// ── Compute Engine ────────────────────────────────────────────────────────────
+
+/// List Compute Engine instances in a zone. opts: zone (required). Returns
+/// `{zone, instances: [{name, status, machine_type, zone}]}`.
+async fn op_compute_list_instances(opts: Value) -> Result<Value> {
+    let project = resolve_project(&opts).ok_or_else(|| anyhow!("missing project"))?;
+    let zone = opts["zone"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing zone"))?;
+    let token = auth_header().await?;
+    let url = format!(
+        "https://compute.googleapis.com/compute/v1/projects/{}/zones/{}/instances",
+        urlencoding::encode(&project),
+        urlencoding::encode(zone)
+    );
+    let body: Value = client()
+        .get(&url)
+        .header("Authorization", token)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let instances: Vec<Value> = body["items"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .map(|i| {
+                    json!({
+                        "name": i["name"].as_str().unwrap_or(""),
+                        "status": i["status"].as_str().unwrap_or(""),
+                        "machine_type": leaf_name(i["machineType"].as_str().unwrap_or("")),
+                        "zone": leaf_name(i["zone"].as_str().unwrap_or("")),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(json!({"zone": zone, "instances": instances}))
+}
+
+/// Get one Compute Engine instance. opts: zone, instance (both required).
+/// Returns the full instance resource.
+async fn op_compute_get_instance(opts: Value) -> Result<Value> {
+    let project = resolve_project(&opts).ok_or_else(|| anyhow!("missing project"))?;
+    let zone = opts["zone"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing zone"))?;
+    let instance = opts["instance"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing instance"))?;
+    let token = auth_header().await?;
+    let url = format!(
+        "https://compute.googleapis.com/compute/v1/projects/{}/zones/{}/instances/{}",
+        urlencoding::encode(&project),
+        urlencoding::encode(zone),
+        urlencoding::encode(instance)
+    );
+    let body: Value = client()
+        .get(&url)
+        .header("Authorization", token)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    Ok(json!({"zone": zone, "instance": instance, "resource": body}))
+}
+
+/// Issue a lifecycle action (`start`/`stop`/`reset`) against an instance.
+/// Shared by the start/stop/reset exports — the verb is the URL action suffix.
+async fn compute_instance_action(opts: &Value, action: &str) -> Result<Value> {
+    let project = resolve_project(opts).ok_or_else(|| anyhow!("missing project"))?;
+    let zone = opts["zone"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing zone"))?;
+    let instance = opts["instance"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing instance"))?;
+    let token = auth_header().await?;
+    let url = format!(
+        "https://compute.googleapis.com/compute/v1/projects/{}/zones/{}/instances/{}/{}",
+        urlencoding::encode(&project),
+        urlencoding::encode(zone),
+        urlencoding::encode(instance),
+        action
+    );
+    let info: Value = client()
+        .post(&url)
+        .header("Authorization", token)
+        .header("Content-Length", "0")
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    Ok(json!({
+        "instance": instance,
+        "action": action,
+        "operation": info["name"].clone(),
+        "status": info["status"].clone(),
+    }))
+}
+
+/// Start a stopped Compute Engine instance. opts: zone, instance.
+async fn op_compute_start_instance(opts: Value) -> Result<Value> {
+    compute_instance_action(&opts, "start").await
+}
+
+/// Stop a running Compute Engine instance. opts: zone, instance.
+async fn op_compute_stop_instance(opts: Value) -> Result<Value> {
+    compute_instance_action(&opts, "stop").await
+}
+
+/// Hard-reset a Compute Engine instance. opts: zone, instance.
+async fn op_compute_reset_instance(opts: Value) -> Result<Value> {
+    compute_instance_action(&opts, "reset").await
+}
+
+/// List the Compute Engine zones available to the project. Returns
+/// `{zones: [{name, region, status}]}`.
+async fn op_compute_list_zones(opts: Value) -> Result<Value> {
+    let project = resolve_project(&opts).ok_or_else(|| anyhow!("missing project"))?;
+    let token = auth_header().await?;
+    let url = format!(
+        "https://compute.googleapis.com/compute/v1/projects/{}/zones",
+        urlencoding::encode(&project)
+    );
+    let body: Value = client()
+        .get(&url)
+        .header("Authorization", token)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let zones: Vec<Value> = body["items"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .map(|z| {
+                    json!({
+                        "name": z["name"].as_str().unwrap_or(""),
+                        "region": leaf_name(z["region"].as_str().unwrap_or("")),
+                        "status": z["status"].as_str().unwrap_or(""),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(json!({"project": project, "zones": zones}))
+}
+
+// ── Cloud Run ───────────────────────────────────────────────────────────────
+
+/// List Cloud Run (v2) services in a region. opts: region (required). Returns
+/// `{region, services: [{name, uri, latest_revision}]}`.
+async fn op_run_list_services(opts: Value) -> Result<Value> {
+    let project = resolve_project(&opts).ok_or_else(|| anyhow!("missing project"))?;
+    let region = opts["region"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing region"))?;
+    let token = auth_header().await?;
+    let url = format!(
+        "https://run.googleapis.com/v2/projects/{}/locations/{}/services",
+        urlencoding::encode(&project),
+        urlencoding::encode(region)
+    );
+    let body: Value = client()
+        .get(&url)
+        .header("Authorization", token)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let services: Vec<Value> = body["services"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .map(|s| {
+                    json!({
+                        "name": leaf_name(s["name"].as_str().unwrap_or("")),
+                        "uri": s["uri"].clone(),
+                        "latest_revision": leaf_name(s["latestReadyRevision"].as_str().unwrap_or("")),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(json!({"region": region, "services": services}))
+}
+
+/// Get one Cloud Run (v2) service. opts: region, service (both required).
+async fn op_run_get_service(opts: Value) -> Result<Value> {
+    let project = resolve_project(&opts).ok_or_else(|| anyhow!("missing project"))?;
+    let region = opts["region"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing region"))?;
+    let service = opts["service"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing service"))?;
+    let token = auth_header().await?;
+    let url = format!(
+        "https://run.googleapis.com/v2/projects/{}/locations/{}/services/{}",
+        urlencoding::encode(&project),
+        urlencoding::encode(region),
+        urlencoding::encode(service)
+    );
+    let body: Value = client()
+        .get(&url)
+        .header("Authorization", token)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    Ok(json!({"region": region, "service": service, "resource": body}))
+}
+
+/// List the revisions of a Cloud Run (v2) service. opts: region, service.
+/// Returns `{region, service, revisions: [{name, ...}]}`.
+async fn op_run_list_revisions(opts: Value) -> Result<Value> {
+    let project = resolve_project(&opts).ok_or_else(|| anyhow!("missing project"))?;
+    let region = opts["region"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing region"))?;
+    let service = opts["service"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing service"))?;
+    let token = auth_header().await?;
+    let url = format!(
+        "https://run.googleapis.com/v2/projects/{}/locations/{}/services/{}/revisions",
+        urlencoding::encode(&project),
+        urlencoding::encode(region),
+        urlencoding::encode(service)
+    );
+    let body: Value = client()
+        .get(&url)
+        .header("Authorization", token)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let revisions: Vec<Value> = body["revisions"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .map(|r| {
+                    json!({
+                        "name": leaf_name(r["name"].as_str().unwrap_or("")),
+                        "create_time": r["createTime"].clone(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(json!({"region": region, "service": service, "revisions": revisions}))
+}
+
+// ── Cloud Functions ───────────────────────────────────────────────────────────
+
+/// List Cloud Functions (v2) in a region (use `-` for all regions). opts:
+/// region (default "-"). Returns `{region, functions: [{name, state, url}]}`.
+async fn op_functions_list(opts: Value) -> Result<Value> {
+    let project = resolve_project(&opts).ok_or_else(|| anyhow!("missing project"))?;
+    let region = opts["region"].as_str().unwrap_or("-");
+    let token = auth_header().await?;
+    let url = format!(
+        "https://cloudfunctions.googleapis.com/v2/projects/{}/locations/{}/functions",
+        urlencoding::encode(&project),
+        urlencoding::encode(region)
+    );
+    let body: Value = client()
+        .get(&url)
+        .header("Authorization", token)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let functions: Vec<Value> = body["functions"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .map(|f| {
+                    json!({
+                        "name": leaf_name(f["name"].as_str().unwrap_or("")),
+                        "state": f["state"].clone(),
+                        "url": f["serviceConfig"]["uri"].clone(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(json!({"region": region, "functions": functions}))
+}
+
+/// Describe one Cloud Function (v2). opts: region, function (both required).
+async fn op_functions_describe(opts: Value) -> Result<Value> {
+    let project = resolve_project(&opts).ok_or_else(|| anyhow!("missing project"))?;
+    let region = opts["region"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing region"))?;
+    let function = opts["function"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing function"))?;
+    let token = auth_header().await?;
+    let url = format!(
+        "https://cloudfunctions.googleapis.com/v2/projects/{}/locations/{}/functions/{}",
+        urlencoding::encode(&project),
+        urlencoding::encode(region),
+        urlencoding::encode(function)
+    );
+    let body: Value = client()
+        .get(&url)
+        .header("Authorization", token)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    Ok(json!({"region": region, "function": function, "resource": body}))
+}
+
+// ── Cloud Logging ─────────────────────────────────────────────────────────────
+
+/// List recent log entries via `entries:list`. opts: filter (optional advanced
+/// logs filter), page_size (default 50), order (default "desc"). Returns
+/// `{entries: [{timestamp, severity, log_name, text_payload, json_payload}]}`.
+async fn op_logging_list_entries(opts: Value) -> Result<Value> {
+    let project = resolve_project(&opts).ok_or_else(|| anyhow!("missing project"))?;
+    let page_size = opts["page_size"].as_u64().unwrap_or(50);
+    let order = match opts["order"].as_str() {
+        Some("asc") => "timestamp asc",
+        _ => "timestamp desc",
+    };
+    let token = auth_header().await?;
+    let mut req = json!({
+        "resourceNames": [format!("projects/{project}")],
+        "pageSize": page_size,
+        "orderBy": order,
+    });
+    if let Some(f) = opts["filter"].as_str() {
+        req["filter"] = json!(f);
+    }
+    let body: Value = client()
+        .post("https://logging.googleapis.com/v2/entries:list")
+        .header("Authorization", token)
+        .json(&req)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let entries: Vec<Value> = body["entries"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .map(|e| {
+                    json!({
+                        "timestamp": e["timestamp"].clone(),
+                        "severity": e["severity"].clone(),
+                        "log_name": leaf_name(e["logName"].as_str().unwrap_or("")),
+                        "text_payload": e["textPayload"].clone(),
+                        "json_payload": e["jsonPayload"].clone(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(json!({"project": project, "entries": entries}))
+}
+
+/// Write a single log entry via `entries:write`. opts: log (required, the log
+/// id), text (the text payload) OR json (a structured payload object),
+/// severity (default "DEFAULT"). Returns `{written: true}`.
+async fn op_logging_write_entry(opts: Value) -> Result<Value> {
+    let project = resolve_project(&opts).ok_or_else(|| anyhow!("missing project"))?;
+    let log = opts["log"].as_str().ok_or_else(|| anyhow!("missing log"))?;
+    let severity = opts["severity"].as_str().unwrap_or("DEFAULT");
+    let mut entry = json!({
+        "logName": format!("projects/{project}/logs/{}", urlencoding::encode(log)),
+        "resource": { "type": "global" },
+        "severity": severity,
+    });
+    if let Some(j) = opts.get("json").filter(|v| v.is_object()) {
+        entry["jsonPayload"] = j.clone();
+    } else if let Some(t) = opts["text"].as_str() {
+        entry["textPayload"] = json!(t);
+    } else {
+        return Err(anyhow!("missing text or json payload"));
+    }
+    let token = auth_header().await?;
+    let req = json!({ "entries": [entry] });
+    client()
+        .post("https://logging.googleapis.com/v2/entries:write")
+        .header("Authorization", token)
+        .json(&req)
+        .send()
+        .await?
+        .error_for_status()?;
+    Ok(json!({"log": log, "written": true}))
+}
+
+/// List the log ids that have entries in the project (`logs.list`). Returns
+/// `{logs: [<log id>]}`.
+async fn op_logging_list_logs(opts: Value) -> Result<Value> {
+    let project = resolve_project(&opts).ok_or_else(|| anyhow!("missing project"))?;
+    let token = auth_header().await?;
+    let url = format!(
+        "https://logging.googleapis.com/v2/projects/{}/logs",
+        urlencoding::encode(&project)
+    );
+    let body: Value = client()
+        .get(&url)
+        .header("Authorization", token)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let logs: Vec<String> = body["logNames"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|n| n.as_str().map(|s| leaf_name(s).to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(json!({"project": project, "logs": logs}))
+}
+
+// ── Cloud Monitoring ──────────────────────────────────────────────────────────
+
+/// List time series via `timeSeries.list`. opts: filter (required monitoring
+/// filter, e.g. `metric.type="compute.googleapis.com/instance/cpu/utilization"`),
+/// start (RFC3339), end (RFC3339). Returns `{time_series: [...]}`.
+async fn op_monitoring_list_time_series(opts: Value) -> Result<Value> {
+    let project = resolve_project(&opts).ok_or_else(|| anyhow!("missing project"))?;
+    let filter = opts["filter"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing filter"))?;
+    let start = opts["start"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing start (RFC3339 interval start)"))?;
+    let end = opts["end"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing end (RFC3339 interval end)"))?;
+    let token = auth_header().await?;
+    let url = format!(
+        "https://monitoring.googleapis.com/v3/projects/{}/timeSeries?filter={}&interval.startTime={}&interval.endTime={}",
+        urlencoding::encode(&project),
+        urlencoding::encode(filter),
+        urlencoding::encode(start),
+        urlencoding::encode(end)
+    );
+    let body: Value = client()
+        .get(&url)
+        .header("Authorization", token)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    Ok(json!({
+        "project": project,
+        "time_series": body["timeSeries"].as_array().cloned().unwrap_or_default(),
+    }))
+}
+
+/// List the metric descriptors visible to the project
+/// (`metricDescriptors.list`). opts: filter (optional). Returns
+/// `{descriptors: [{type, display_name, kind, value_type}]}`.
+async fn op_monitoring_list_metric_descriptors(opts: Value) -> Result<Value> {
+    let project = resolve_project(&opts).ok_or_else(|| anyhow!("missing project"))?;
+    let token = auth_header().await?;
+    let mut url = format!(
+        "https://monitoring.googleapis.com/v3/projects/{}/metricDescriptors",
+        urlencoding::encode(&project)
+    );
+    if let Some(f) = opts["filter"].as_str() {
+        url.push_str(&format!("?filter={}", urlencoding::encode(f)));
+    }
+    let body: Value = client()
+        .get(&url)
+        .header("Authorization", token)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let descriptors: Vec<Value> = body["metricDescriptors"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .map(|d| {
+                    json!({
+                        "type": d["type"].clone(),
+                        "display_name": d["displayName"].clone(),
+                        "kind": d["metricKind"].clone(),
+                        "value_type": d["valueType"].clone(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(json!({"project": project, "descriptors": descriptors}))
+}
+
+// ── Secret Manager (list) ─────────────────────────────────────────────────────
+
+/// List secret ids in the project (`secrets.list`). Returns
+/// `{secrets: [<secret id>]}`.
+async fn op_secret_list(opts: Value) -> Result<Value> {
+    let project = resolve_project(&opts).ok_or_else(|| anyhow!("missing project"))?;
+    let token = auth_header().await?;
+    let url = format!(
+        "https://secretmanager.googleapis.com/v1/projects/{}/secrets",
+        urlencoding::encode(&project)
+    );
+    let body: Value = client()
+        .get(&url)
+        .header("Authorization", token)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let secrets: Vec<String> = body["secrets"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|s| s["name"].as_str().map(|n| leaf_name(n).to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(json!({"project": project, "secrets": secrets}))
+}
+
+// ── IAM ────────────────────────────────────────────────────────────────────────
+
+/// Get the IAM policy for a Compute / generic resource by full
+/// `getIamPolicy` URL. opts: url (required — the full `:getIamPolicy` endpoint),
+/// or use the service-specific helpers. Returns `{policy}`.
+async fn op_iam_get_policy(opts: Value) -> Result<Value> {
+    let url = opts["url"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing url (full :getIamPolicy endpoint)"))?;
+    let token = auth_header().await?;
+    let policy: Value = client()
+        .get(url)
+        .header("Authorization", token)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    Ok(json!({"policy": policy}))
+}
+
+/// Test which of a set of permissions the caller holds on a resource via a
+/// full `:testIamPermissions` URL. opts: url (required), permissions (array,
+/// required). Returns `{permissions: [<granted permission>]}`.
+async fn op_iam_test_permissions(opts: Value) -> Result<Value> {
+    let url = opts["url"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing url (full :testIamPermissions endpoint)"))?;
+    let permissions = opts["permissions"]
+        .as_array()
+        .ok_or_else(|| anyhow!("missing permissions (array)"))?;
+    let token = auth_header().await?;
+    let body: Value = client()
+        .post(url)
+        .header("Authorization", token)
+        .json(&json!({ "permissions": permissions }))
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let granted: Vec<Value> = body["permissions"].as_array().cloned().unwrap_or_default();
+    Ok(json!({"permissions": granted}))
+}
+
+/// List the service accounts in the project (`serviceAccounts.list`). Returns
+/// `{service_accounts: [{email, display_name, unique_id}]}`.
+async fn op_iam_list_service_accounts(opts: Value) -> Result<Value> {
+    let project = resolve_project(&opts).ok_or_else(|| anyhow!("missing project"))?;
+    let token = auth_header().await?;
+    let url = format!(
+        "https://iam.googleapis.com/v1/projects/{}/serviceAccounts",
+        urlencoding::encode(&project)
+    );
+    let body: Value = client()
+        .get(&url)
+        .header("Authorization", token)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let accounts: Vec<Value> = body["accounts"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .map(|s| {
+                    json!({
+                        "email": s["email"].clone(),
+                        "display_name": s["displayName"].clone(),
+                        "unique_id": s["uniqueId"].clone(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(json!({"project": project, "service_accounts": accounts}))
+}
+
+/// Get one service account by email (`serviceAccounts.get`). opts: email
+/// (required). Returns the service-account resource.
+async fn op_iam_get_service_account(opts: Value) -> Result<Value> {
+    let project = resolve_project(&opts).ok_or_else(|| anyhow!("missing project"))?;
+    let email = opts["email"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing email"))?;
+    let token = auth_header().await?;
+    let url = format!(
+        "https://iam.googleapis.com/v1/projects/{}/serviceAccounts/{}",
+        urlencoding::encode(&project),
+        urlencoding::encode(email)
+    );
+    let body: Value = client()
+        .get(&url)
+        .header("Authorization", token)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    Ok(json!({"email": email, "resource": body}))
+}
+
+// ── BigQuery (datasets + tables) ───────────────────────────────────────────────
+
+/// List datasets in the project (`datasets.list`). Returns
+/// `{datasets: [<dataset id>]}`.
+async fn op_bigquery_list_datasets(opts: Value) -> Result<Value> {
+    let project = resolve_project(&opts).ok_or_else(|| anyhow!("missing project"))?;
+    let token = auth_header().await?;
+    let url = format!(
+        "https://bigquery.googleapis.com/bigquery/v2/projects/{}/datasets",
+        urlencoding::encode(&project)
+    );
+    let body: Value = client()
+        .get(&url)
+        .header("Authorization", token)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let datasets: Vec<String> = body["datasets"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|d| {
+                    d["datasetReference"]["datasetId"]
+                        .as_str()
+                        .map(String::from)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(json!({"project": project, "datasets": datasets}))
+}
+
+/// Get one dataset's metadata (`datasets.get`). opts: dataset (required).
+async fn op_bigquery_get_dataset(opts: Value) -> Result<Value> {
+    let project = resolve_project(&opts).ok_or_else(|| anyhow!("missing project"))?;
+    let dataset = opts["dataset"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing dataset"))?;
+    let token = auth_header().await?;
+    let url = format!(
+        "https://bigquery.googleapis.com/bigquery/v2/projects/{}/datasets/{}",
+        urlencoding::encode(&project),
+        urlencoding::encode(dataset)
+    );
+    let body: Value = client()
+        .get(&url)
+        .header("Authorization", token)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    Ok(json!({"dataset": dataset, "resource": body}))
+}
+
+/// List tables in a dataset (`tables.list`). opts: dataset (required). Returns
+/// `{dataset, tables: [<table id>]}`.
+async fn op_bigquery_list_tables(opts: Value) -> Result<Value> {
+    let project = resolve_project(&opts).ok_or_else(|| anyhow!("missing project"))?;
+    let dataset = opts["dataset"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing dataset"))?;
+    let token = auth_header().await?;
+    let url = format!(
+        "https://bigquery.googleapis.com/bigquery/v2/projects/{}/datasets/{}/tables",
+        urlencoding::encode(&project),
+        urlencoding::encode(dataset)
+    );
+    let body: Value = client()
+        .get(&url)
+        .header("Authorization", token)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let tables: Vec<String> = body["tables"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|t| t["tableReference"]["tableId"].as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(json!({"dataset": dataset, "tables": tables}))
+}
+
+/// Get one table's metadata (`tables.get`). opts: dataset, table (both required).
+async fn op_bigquery_get_table(opts: Value) -> Result<Value> {
+    let project = resolve_project(&opts).ok_or_else(|| anyhow!("missing project"))?;
+    let dataset = opts["dataset"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing dataset"))?;
+    let table = opts["table"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing table"))?;
+    let token = auth_header().await?;
+    let url = format!(
+        "https://bigquery.googleapis.com/bigquery/v2/projects/{}/datasets/{}/tables/{}",
+        urlencoding::encode(&project),
+        urlencoding::encode(dataset),
+        urlencoding::encode(table)
+    );
+    let body: Value = client()
+        .get(&url)
+        .header("Authorization", token)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    Ok(json!({"dataset": dataset, "table": table, "resource": body}))
+}
+
+// ── GCS IAM ─────────────────────────────────────────────────────────────────
+
+/// Get a bucket's IAM policy (`b/<bucket>/iam`). opts: bucket (required).
+/// Returns `{bucket, policy}`.
+async fn op_gcs_get_iam_policy(opts: Value) -> Result<Value> {
+    let bucket = opts["bucket"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing bucket"))?;
+    let token = auth_header().await?;
+    let url = format!(
+        "https://storage.googleapis.com/storage/v1/b/{}/iam",
+        urlencoding::encode(bucket)
+    );
+    let policy: Value = client()
+        .get(&url)
+        .header("Authorization", token)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    Ok(json!({"bucket": bucket, "policy": policy}))
+}
+
+/// Set a bucket's IAM policy (`PUT b/<bucket>/iam`). opts: bucket (required),
+/// policy (required — the full IAM policy object). Returns `{bucket, policy}`.
+async fn op_gcs_set_iam_policy(opts: Value) -> Result<Value> {
+    let bucket = opts["bucket"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing bucket"))?;
+    let policy = opts
+        .get("policy")
+        .filter(|p| p.is_object())
+        .ok_or_else(|| anyhow!("missing policy (an object)"))?;
+    let token = auth_header().await?;
+    let url = format!(
+        "https://storage.googleapis.com/storage/v1/b/{}/iam",
+        urlencoding::encode(bucket)
+    );
+    let applied: Value = client()
+        .put(&url)
+        .header("Authorization", token)
+        .json(policy)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    Ok(json!({"bucket": bucket, "policy": applied}))
+}
+
 // ── FFI plumbing ────────────────────────────────────────────────────────────
 
 fn ffi_call_async<F, Fut>(args: *const c_char, handler: F) -> *const c_char
@@ -2100,6 +2911,143 @@ pub extern "C" fn gcp__valid_dataset_id(args: *const c_char) -> *const c_char {
 #[no_mangle]
 pub extern "C" fn gcp__valid_table_id(args: *const c_char) -> *const c_char {
     ffi_call_async(args, |opts| async move { op_valid_table_id(opts) })
+}
+
+// ── new-service exports ───────────────────────────────────────────────────────
+
+#[no_mangle]
+pub extern "C" fn gcp__compute_list_instances(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_compute_list_instances)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__compute_get_instance(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_compute_get_instance)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__compute_start_instance(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_compute_start_instance)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__compute_stop_instance(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_compute_stop_instance)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__compute_reset_instance(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_compute_reset_instance)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__compute_list_zones(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_compute_list_zones)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__run_list_services(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_run_list_services)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__run_get_service(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_run_get_service)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__run_list_revisions(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_run_list_revisions)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__functions_list(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_functions_list)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__functions_describe(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_functions_describe)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__logging_list_entries(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_logging_list_entries)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__logging_write_entry(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_logging_write_entry)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__logging_list_logs(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_logging_list_logs)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__monitoring_list_time_series(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_monitoring_list_time_series)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__monitoring_list_metric_descriptors(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_monitoring_list_metric_descriptors)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__secret_list(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_secret_list)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__iam_get_policy(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_iam_get_policy)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__iam_test_permissions(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_iam_test_permissions)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__iam_list_service_accounts(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_iam_list_service_accounts)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__iam_get_service_account(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_iam_get_service_account)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__bigquery_list_datasets(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_bigquery_list_datasets)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__bigquery_get_dataset(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_bigquery_get_dataset)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__bigquery_list_tables(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_bigquery_list_tables)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__bigquery_get_table(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_bigquery_get_table)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__gcs_get_iam_policy(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_gcs_get_iam_policy)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__gcs_set_iam_policy(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_gcs_set_iam_policy)
 }
 
 #[cfg(test)]
@@ -3240,6 +4188,174 @@ mod tests {
             json!(true)
         );
         assert!(op_valid_dataset_id(json!({})).is_err());
+    }
+
+    /// Helper: call an FFI export with a JSON args object and parse the
+    /// returned CString back to a `Value`, freeing the pointer. Used by the
+    /// new-service error-path tests below to keep them terse.
+    fn call_export(f: extern "C" fn(*const c_char) -> *const c_char, args: &Value) -> Value {
+        let s = CString::new(serde_json::to_string(args).unwrap()).unwrap();
+        let p = f(s.as_ptr());
+        assert!(!p.is_null(), "export returned null");
+        // SAFETY: p originated from CString::into_raw inside ffi_call_async.
+        let parsed: Value = unsafe {
+            let cs = CStr::from_ptr(p);
+            serde_json::from_slice(cs.to_bytes()).expect("output JSON parses")
+        };
+        // SAFETY: p was returned by an export from this cdylib.
+        unsafe { stryke_free_cstring(p as *mut c_char) };
+        parsed
+    }
+
+    /// The Compute ops resolve `project` (from env here) BEFORE validating
+    /// `zone`, and `zone` BEFORE `instance`. Pins that precedence across the
+    /// list/get/start/stop/reset family — all of which share the same
+    /// `resolve_project → zone → instance` prefix. A future refactor that
+    /// hoisted the `instance` check above `zone` would flip the diagnostic for
+    /// a caller missing both, sending them to fix the wrong argument. Every
+    /// check runs before `auth_header()`, so this is deterministic without ADC.
+    #[test]
+    fn compute_ops_validate_project_then_zone_then_instance() {
+        with_env(KEYS, || {
+            std::env::set_var("GOOGLE_CLOUD_PROJECT", "test-project");
+            // zone absent → "missing zone" (project resolved from env).
+            for f in [
+                gcp__compute_list_instances as extern "C" fn(*const c_char) -> *const c_char,
+                gcp__compute_get_instance,
+                gcp__compute_start_instance,
+                gcp__compute_stop_instance,
+                gcp__compute_reset_instance,
+            ] {
+                let v = call_export(f, &json!({}));
+                assert_eq!(
+                    v["error"].as_str(),
+                    Some("missing zone"),
+                    "project from env, zone absent → must report zone"
+                );
+            }
+            // zone present, instance absent → "missing instance" for the
+            // ops that take an instance (list/zones don't).
+            for f in [
+                gcp__compute_get_instance as extern "C" fn(*const c_char) -> *const c_char,
+                gcp__compute_start_instance,
+                gcp__compute_stop_instance,
+                gcp__compute_reset_instance,
+            ] {
+                let v = call_export(f, &json!({"zone": "us-central1-a"}));
+                assert_eq!(
+                    v["error"].as_str(),
+                    Some("missing instance"),
+                    "zone supplied, instance absent → must report instance"
+                );
+            }
+        });
+        // No project source at all → project check fires first.
+        with_env(KEYS, || {
+            let v = call_export(gcp__compute_list_instances, &json!({"zone": "z"}));
+            assert_eq!(
+                v["error"].as_str(),
+                Some("missing project"),
+                "no project source → project check precedes zone check"
+            );
+        });
+    }
+
+    /// `op_logging_write_entry` requires a payload: if neither `text` nor a
+    /// `json` OBJECT is supplied (project + log present), it must report
+    /// "missing text or json payload" — distinct from the project/log checks.
+    /// Pins that a non-object `json` value does NOT satisfy the payload
+    /// requirement (the `.filter(|v| v.is_object())` guard), so a caller who
+    /// passes `json => "oops"` (a string) is told the payload is missing
+    /// rather than silently sending an entry with no body. Deterministic
+    /// without ADC because all three checks precede `auth_header()`.
+    #[test]
+    fn logging_write_entry_requires_a_payload() {
+        with_env(KEYS, || {
+            std::env::set_var("GOOGLE_CLOUD_PROJECT", "test-project");
+            // log + project present, no payload at all.
+            let v = call_export(gcp__logging_write_entry, &json!({"log": "app"}));
+            assert_eq!(
+                v["error"].as_str(),
+                Some("missing text or json payload"),
+                "no text/json → payload-missing error"
+            );
+            // a non-object `json` is rejected (must be a structured payload).
+            let v2 = call_export(
+                gcp__logging_write_entry,
+                &json!({"log": "app", "json": "not-an-object"}),
+            );
+            assert_eq!(
+                v2["error"].as_str(),
+                Some("missing text or json payload"),
+                "non-object json must not satisfy the payload requirement"
+            );
+            // log absent → log check fires before the payload check.
+            let v3 = call_export(gcp__logging_write_entry, &json!({"text": "hi"}));
+            assert_eq!(
+                v3["error"].as_str(),
+                Some("missing log"),
+                "log is validated before the payload"
+            );
+        });
+    }
+
+    /// `op_iam_test_permissions` validates `url` BEFORE `permissions`, and
+    /// `permissions` must be an array. Neither check needs ADC (both precede
+    /// `auth_header()`). Pins: (1) url-first precedence, (2) the array
+    /// requirement is enforced — a future refactor that accepted a scalar
+    /// `permissions` and wrapped it would change the contract the .stk wrapper
+    /// relies on (it passes an arrayref).
+    #[test]
+    fn iam_test_permissions_validates_url_then_permissions_array() {
+        // url absent → "missing url ..." even though permissions also absent.
+        let v = call_export(gcp__iam_test_permissions, &json!({}));
+        assert_eq!(
+            v["error"].as_str(),
+            Some("missing url (full :testIamPermissions endpoint)"),
+            "url is checked first"
+        );
+        // url present, permissions absent → permissions error.
+        let v2 = call_export(
+            gcp__iam_test_permissions,
+            &json!({"url": "https://example.com/x:testIamPermissions"}),
+        );
+        assert_eq!(
+            v2["error"].as_str(),
+            Some("missing permissions (array)"),
+            "url supplied; permissions absent → permissions error"
+        );
+        // permissions present but not an array → still rejected as missing.
+        let v3 = call_export(
+            gcp__iam_test_permissions,
+            &json!({"url": "https://example.com/x:testIamPermissions", "permissions": "scalar"}),
+        );
+        assert_eq!(
+            v3["error"].as_str(),
+            Some("missing permissions (array)"),
+            "non-array permissions must be rejected"
+        );
+    }
+
+    /// `op_gcs_set_iam_policy` requires `policy` to be an OBJECT, mirroring the
+    /// `is_object()` guard `firestore_set` uses for `data`. Pins both the
+    /// bucket-first precedence and that a non-object policy is rejected — a
+    /// caller passing `policy => "{}"` (a string) must be told the policy is
+    /// missing rather than have a string serialized as the request body.
+    #[test]
+    fn gcs_set_iam_policy_requires_object_policy() {
+        // bucket absent → bucket error first.
+        let v = call_export(gcp__gcs_set_iam_policy, &json!({}));
+        assert_eq!(v["error"].as_str(), Some("missing bucket"));
+        // bucket present, non-object policy → policy error.
+        let v2 = call_export(
+            gcp__gcs_set_iam_policy,
+            &json!({"bucket": "b", "policy": "not-an-object"}),
+        );
+        assert_eq!(
+            v2["error"].as_str(),
+            Some("missing policy (an object)"),
+            "a string policy must not satisfy the object requirement"
+        );
     }
 
     #[test]

@@ -1,0 +1,30 @@
+## lib/IAM.stk — `use GCP::IAM`
+##
+## Wraps `GCP::iam_*` from the cdylib (IAM API v1 + generic getIamPolicy /
+## testIamPermissions over a full resource URL).
+
+package GCP::IAM
+
+use GCP
+
+## Get the IAM policy at a full :getIamPolicy $url. Returns the policy hashref.
+fn GCP::IAM::get_policy ($url, %opts) {
+    GCP::iam_get_policy($url, %opts)
+}
+
+## Test which of $permissions (arrayref) the caller holds at a full
+## :testIamPermissions $url. Returns the granted-permission array.
+fn GCP::IAM::test_permissions ($url, $permissions, %opts) {
+    GCP::iam_test_permissions($url, $permissions, %opts)
+}
+
+## List the service accounts in the project — array of
+## { email, display_name, unique_id }.
+fn GCP::IAM::service_accounts (%opts) {
+    GCP::iam_list_service_accounts(%opts)
+}
+
+## Get one service account by $email. Returns { email, resource }.
+fn GCP::IAM::service_account ($email, %opts) {
+    GCP::iam_get_service_account($email, %opts)
+}

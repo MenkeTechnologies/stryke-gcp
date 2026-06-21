@@ -1,0 +1,22 @@
+## lib/Run.stk — `use GCP::Run`
+##
+## Wraps `GCP::run_*` from the cdylib (Cloud Run Admin API v2).
+
+package GCP::Run
+
+use GCP
+
+## List services in $region — array of { name, uri, latest_revision }.
+fn GCP::Run::services ($region, %opts) {
+    GCP::run_list_services($region, %opts)
+}
+
+## Get one service. Returns { region, service, resource }.
+fn GCP::Run::get ($region, $service, %opts) {
+    GCP::run_get_service($region, $service, %opts)
+}
+
+## List a service's revisions — array of { name, create_time }.
+fn GCP::Run::revisions ($region, $service, %opts) {
+    GCP::run_list_revisions($region, $service, %opts)
+}
