@@ -108,7 +108,28 @@
 
     <main class="tutorial-main">
       <h2 class="tutorial-title"><span class="step-hash">&gt;_</span>STRYKE-GCP</h2>
-      <p class="tutorial-subtitle"><strong>GCP from the pipe.</strong> Google Cloud client for stryke &mdash; Cloud Storage, Pub/Sub, Secret Manager, BigQuery, and Firestore. Opt-in package, kept out of the stryke core binary so the daily-driver install stays slim; ships as a Rust cdylib that stryke <code>dlopen</code>s in-process on first <code>use GCP</code>.</p>
+      <p class="tutorial-subtitle"><strong>GCP from the pipe.</strong> Google Cloud client for stryke &mdash; Cloud Storage, Pub/Sub, Secret Manager, BigQuery, Firestore, Compute Engine, Cloud Run, Cloud Functions, Cloud Logging, Cloud Monitoring, and IAM. Opt-in package, kept out of the stryke core binary so the daily-driver install stays slim; ships as a Rust cdylib that stryke <code>dlopen</code>s in-process on first <code>use GCP</code>.</p>
+
+      <section class="tutorial-section">
+        <h2>Scope</h2>
+        <p>Twelve service families ship in <code>v0.19.x</code>, exposed through <strong>84</strong> <code>gcp__*</code> FFI entry points and a set of typed <code>.stk</code> wrappers. The package is intentionally narrower than the full GCP REST surface &mdash; the goal is &ldquo;useful from a shell pipeline&rdquo;, not exhaustive API coverage.</p>
+        <table class="example-tbl">
+          <tbody>
+            <tr><td>Cloud Storage (GCS)</td><td>ls / get / put / rm / head / cp / compose / buckets / get+set IAM policy</td></tr>
+            <tr><td>Pub/Sub</td><td>publish / pull / ack / list+create+delete topics+subs / get topic / topic subscriptions / pump</td></tr>
+            <tr><td>Secret Manager</td><td>access / create / add-version / list / list-versions / delete</td></tr>
+            <tr><td>Auth identity</td><td>ADC + project resolution</td></tr>
+            <tr><td>BigQuery</td><td>query (jobs.query) + streaming insert + list/get datasets + list/get tables + list jobs</td></tr>
+            <tr><td>Firestore</td><td>get / set / delete / list / query / create (native-mode REST)</td></tr>
+            <tr><td>Compute Engine</td><td>list/get instances / start / stop / reset / list zones / regions / machine types / disks</td></tr>
+            <tr><td>Cloud Run</td><td>list/get services / list revisions (Admin API v2)</td></tr>
+            <tr><td>Cloud Functions</td><td>list / describe (API v2)</td></tr>
+            <tr><td>Cloud Logging</td><td>list entries / write entry / list logs (API v2)</td></tr>
+            <tr><td>Cloud Monitoring</td><td>list time series / list metric descriptors (API v3)</td></tr>
+            <tr><td>IAM</td><td>get policy / test permissions / list+get service accounts</td></tr>
+          </tbody>
+        </table>
+      </section>
 
       <section class="tutorial-section">
         <h2>Install</h2>
@@ -126,6 +147,21 @@ make install</pre>
       </section>
 
       <section class="tutorial-section">
+        <h2>Auth</h2>
+        <p>Uses <strong>Application Default Credentials</strong> &mdash; the same chain as <code>gcloud</code>:</p>
+        <ol>
+          <li><code>$GOOGLE_APPLICATION_CREDENTIALS</code> pointing at a service-account JSON.</li>
+          <li><code>gcloud auth application-default login</code> on dev machines.</li>
+          <li>The GCE / Cloud Run / GKE metadata server when running on GCP.</li>
+        </ol>
+        <p>Set the project once and forget it:</p>
+<pre>export GOOGLE_CLOUD_PROJECT=my-project-id</pre>
+        <p>Per call, override the project with <code>project =&gt; "..."</code> on any public fn. ADC discovery, metadata-server lookup, WIF, and SA-file resolution run once per stryke session &mdash; the cached credentials live in <code>OnceCell</code> and are reused on every subsequent call.</p>
+<pre>GCP::Storage::ls "gs://my-bucket/", project =&gt; "other-project"
+GCP::PubSub::publish "my-topic", "x", project =&gt; "other-project"</pre>
+      </section>
+
+      <section class="tutorial-section">
         <h2>Quick start: <code>use GCP</code></h2>
         <table class="example-tbl">
           <tbody>
@@ -138,7 +174,226 @@ make install</pre>
             <tr><td>pump (pull → callback → ack)</td><td><code>GCP::PubSub::pump "my-sub", iterations =&gt; 5, callback =&gt; sub ($m) { handle_message $m-&gt;{data} }</code></td></tr>
           </tbody>
         </table>
-        <p>The full API lives in the <a href="https://github.com/MenkeTechnologies/stryke-gcp#0x05-api-reference">README "API reference" section</a>.</p>
+        <p>Project / endpoint overrides apply on every public fn via <code>project =&gt; "..."</code>. The complete reference is below; the <a href="https://github.com/MenkeTechnologies/stryke-gcp#0x05-api-reference">README "API reference" section</a> is the authoritative mirror.</p>
+      </section>
+
+      <section class="tutorial-section">
+        <h2>API reference: <code>use GCP</code></h2>
+        <p>Plumbing fns plus the flat <code>GCP::&lt;service&gt;_&lt;op&gt;</code> entry points the namespaced wrappers delegate to.</p>
+        <table class="example-tbl">
+          <tbody>
+            <tr><td>GCP::version()</td><td>cdylib package version string</td></tr>
+            <tr><td>GCP::ping(%opts)</td><td>connectivity probe</td></tr>
+            <tr><td>GCP::identity(%opts)</td><td><code>{ ok, project, credentials_source }</code></td></tr>
+          </tbody>
+        </table>
+        <p><strong>Pure helpers</strong> &mdash; credential-free string parsing / validation (no network, no auth):</p>
+        <table class="example-tbl">
+          <tbody>
+            <tr><td>GCP::parse_gs_uri($uri)</td><td><code>{ bucket, object }</code></td></tr>
+            <tr><td>GCP::build_gs_uri($b, $obj?)</td><td>bucket+object &rarr; <code>gs://</code> URI (inverse of parse_gs_uri)</td></tr>
+            <tr><td>GCP::gs_uri_to_url($uri)</td><td><code>gs://b/o</code> &rarr; <code>{ url, bucket, object }</code></td></tr>
+            <tr><td>GCP::url_to_gs_uri($url)</td><td>GCS URL &rarr; <code>{ uri, bucket, object }</code> (inverse of gs_uri_to_url)</td></tr>
+            <tr><td>GCP::parse_resource_name($n)</td><td><code>{ parts, pairs, trailing }</code> for <code>projects/p/topics/t</code></td></tr>
+            <tr><td>GCP::resource_name_parent($n)</td><td><code>{ name, parent, has_parent, collection, id }</code></td></tr>
+            <tr><td>GCP::build_resource_name(%opts)</td><td><code>{ parts }</code> or <code>{ pairs, trailing }</code> &rarr; resource name</td></tr>
+            <tr><td>GCP::parse_table_ref($ref)</td><td>BigQuery <code>project.dataset.table</code> / <code>project:dataset.table</code> &rarr; <code>{ table_ref, project, dataset, table, legacy }</code></td></tr>
+            <tr><td>GCP::build_table_ref(%opts)</td><td>inverse of parse_table_ref</td></tr>
+            <tr><td>GCP::valid_bucket_name($name)</td><td><code>{ name, valid, reason }</code> &mdash; GCS bucket rules</td></tr>
+            <tr><td>GCP::valid_project_id($id)</td><td>6-30 lowercase/digit/hyphen, start letter, no trailing hyphen</td></tr>
+            <tr><td>GCP::valid_object_name($name)</td><td>1-1024 UTF-8 bytes, no CR/LF, not <code>.</code>/<code>..</code></td></tr>
+            <tr><td>GCP::region_for_zone($zone)</td><td><code>us-central1-a</code> &rarr; <code>{ zone, region, zone_letter }</code></td></tr>
+            <tr><td>GCP::valid_label($key, $value?)</td><td>Resource Manager label rules</td></tr>
+            <tr><td>GCP::valid_pubsub_id($id)</td><td>Pub/Sub topic/sub/schema/snapshot id rules</td></tr>
+            <tr><td>GCP::valid_service_account_id($id)</td><td>IAM accountId: 6-30 chars, RFC1035</td></tr>
+            <tr><td>GCP::valid_secret_id($id)</td><td>Secret Manager secret ID: 1-255 chars</td></tr>
+            <tr><td>GCP::valid_dataset_id($id)</td><td>BigQuery dataset id: &le;1024, letters/digits/underscores</td></tr>
+            <tr><td>GCP::valid_table_id($id)</td><td>BigQuery table id: &le;1024 UTF-8 bytes (broader than dataset)</td></tr>
+          </tbody>
+        </table>
+        <p><strong>Secret Manager</strong> (flat ops under <code>use GCP</code>):</p>
+        <table class="example-tbl">
+          <tbody>
+            <tr><td>GCP::secret_access($secret, %opts)</td><td>&rarr; <code>$value</code> &mdash; opt <code>version</code> (default <code>"latest"</code>)</td></tr>
+            <tr><td>GCP::secret_create($secret, %opts)</td><td>new empty secret, automatic replication</td></tr>
+            <tr><td>GCP::secret_add_version($secret, $value, %opts)</td><td>add a new version</td></tr>
+            <tr><td>GCP::secret_list(%opts)</td><td>&rarr; <code>@secret_ids</code></td></tr>
+            <tr><td>GCP::secret_list_versions($secret, %opts)</td><td>&rarr; <code>@{ {name, state, create_time} }</code> (newest first)</td></tr>
+            <tr><td>GCP::secret_delete($secret, %opts)</td><td>deletes the secret and all versions</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="tutorial-section">
+        <h2>API reference: <code>use GCP::Storage</code></h2>
+        <table class="example-tbl">
+          <tbody>
+            <tr><td>GCP::Storage::ls $uri, %opts</td><td>&rarr; <code>@entries</code> (opt <code>delimiter</code>)</td></tr>
+            <tr><td>GCP::Storage::get $uri, %opts</td><td>&rarr; <code>$body</code> | <code>$path</code> (when <code>output =&gt; "PATH"</code>)</td></tr>
+            <tr><td>GCP::Storage::put $uri, %opts</td><td>&rarr; <code>\%resp</code> &mdash; <code>data =&gt; $bytes</code> | <code>input =&gt; "PATH"</code></td></tr>
+            <tr><td>GCP::Storage::head $uri, %opts</td><td>&rarr; <code>\%meta</code> (size, content_type, updated, md5_hash, &hellip;)</td></tr>
+            <tr><td>GCP::Storage::cp $src, $dst, %opts</td><td>&rarr; <code>\%resp</code> &mdash; server-side copy</td></tr>
+            <tr><td>GCP::Storage::rm $uri, %opts</td><td>&rarr; <code>\%resp</code></td></tr>
+            <tr><td>GCP::Storage::buckets %opts</td><td>&rarr; <code>@buckets</code></td></tr>
+            <tr><td>GCP::Storage::compose $bucket, $dst, \@sources</td><td>concatenate objects</td></tr>
+            <tr><td>GCP::Storage::get_iam_policy $bucket</td><td>&rarr; <code>\%policy</code></td></tr>
+            <tr><td>GCP::Storage::set_iam_policy $bucket, \%policy</td><td>&rarr; <code>\%resp</code></td></tr>
+          </tbody>
+        </table>
+        <p><code>ls</code> entries: <code>{type=&gt;"object", key, size, content_type, md5, etag, updated, storage_class, generation}</code> or <code>{type=&gt;"prefix", key}</code> when <code>delimiter</code> is set.</p>
+      </section>
+
+      <section class="tutorial-section">
+        <h2>API reference: <code>use GCP::PubSub</code></h2>
+        <table class="example-tbl">
+          <tbody>
+            <tr><td>GCP::PubSub::publish $topic, $data, %opts</td><td>&rarr; <code>\%resp</code> &mdash; opts <code>attrs</code>, <code>ordering_key</code></td></tr>
+            <tr><td>GCP::PubSub::pull $sub, %opts</td><td>&rarr; <code>@messages</code> &mdash; opts <code>max</code>, <code>deadline</code>, <code>ack</code></td></tr>
+            <tr><td>GCP::PubSub::ack $sub, $ids_or_aref, %opts</td><td>&rarr; <code>\%resp</code></td></tr>
+            <tr><td>GCP::PubSub::topics %opts</td><td>&rarr; <code>@topic_names</code></td></tr>
+            <tr><td>GCP::PubSub::subs %opts</td><td>&rarr; <code>@{ {name, topic} }</code></td></tr>
+            <tr><td>GCP::PubSub::create_topic $topic, %opts</td><td>&rarr; <code>\%resp</code></td></tr>
+            <tr><td>GCP::PubSub::create_sub $name, $topic, %opts</td><td>&rarr; <code>\%resp</code> &mdash; opt <code>ack_deadline</code></td></tr>
+            <tr><td>GCP::PubSub::delete_topic $topic, %opts</td><td>&rarr; <code>\%resp</code></td></tr>
+            <tr><td>GCP::PubSub::delete_sub $sub, %opts</td><td>&rarr; <code>\%resp</code></td></tr>
+            <tr><td>GCP::PubSub::get_topic $topic, %opts</td><td>&rarr; <code>{ topic, resource }</code></td></tr>
+            <tr><td>GCP::PubSub::topic_subs $topic, %opts</td><td>&rarr; <code>@subscription_ids</code></td></tr>
+            <tr><td>GCP::PubSub::pump $sub, %opts</td><td>&rarr; <code>$count</code> &mdash; callback + auto-ack</td></tr>
+          </tbody>
+        </table>
+        <p>Topic / subscription names accept bare (<code>my-topic</code>) or fully qualified (<code>projects/PROJECT/topics/my-topic</code>) forms. Bare names expand against <code>$opts{project}</code> or <code>$GOOGLE_CLOUD_PROJECT</code>.</p>
+      </section>
+
+      <section class="tutorial-section">
+        <h2>API reference: <code>use GCP::BigQuery</code></h2>
+        <table class="example-tbl">
+          <tbody>
+            <tr><td>GCP::BigQuery::query $sql, %opts</td><td>&rarr; <code>{ columns, rows, total_rows, complete }</code> &mdash; opts <code>max_results</code>, <code>timeout_ms</code>, <code>project</code></td></tr>
+            <tr><td>GCP::BigQuery::rows $sql, %opts</td><td>&rarr; <code>@rows</code> &mdash; just the row hashrefs</td></tr>
+            <tr><td>GCP::BigQuery::insert $dataset, $table, \@rows, %opts</td><td>&rarr; <code>{ inserted, errors }</code> &mdash; streaming insert</td></tr>
+            <tr><td>GCP::BigQuery::datasets %opts</td><td>&rarr; <code>@dataset_ids</code></td></tr>
+            <tr><td>GCP::BigQuery::dataset $dataset, %opts</td><td>&rarr; <code>{ dataset, resource }</code></td></tr>
+            <tr><td>GCP::BigQuery::tables $dataset, %opts</td><td>&rarr; <code>@table_ids</code></td></tr>
+            <tr><td>GCP::BigQuery::table $dataset, $table, %opts</td><td>&rarr; <code>{ dataset, table, resource }</code></td></tr>
+            <tr><td>GCP::BigQuery::jobs %opts</td><td>&rarr; <code>@{ {id, state, job_type, user_email} }</code> &mdash; opts <code>all_users</code>, <code>max_results</code>, <code>state_filter</code></td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="tutorial-section">
+        <h2>API reference: <code>use GCP::Firestore</code></h2>
+        <table class="example-tbl">
+          <tbody>
+            <tr><td>GCP::Firestore::get $collection, $document, %opts</td><td>&rarr; <code>\%data</code> | <code>undef</code></td></tr>
+            <tr><td>GCP::Firestore::set $collection, $document, \%data, %opts</td><td>&rarr; <code>\%resp</code> &mdash; create-or-overwrite</td></tr>
+            <tr><td>GCP::Firestore::delete $collection, $document, %opts</td><td>&rarr; <code>\%resp</code></td></tr>
+            <tr><td>GCP::Firestore::list $collection, %opts</td><td>&rarr; <code>@{ {id, data} }</code> &mdash; opt <code>page_size</code></td></tr>
+            <tr><td>GCP::Firestore::query $collection, %opts</td><td>&rarr; <code>@{ {id, data} }</code> &mdash; opts <code>field</code>, <code>op</code>, <code>value</code>, <code>limit</code></td></tr>
+            <tr><td>GCP::Firestore::create $collection, \%data, %opts</td><td>&rarr; <code>{ collection, id }</code> &mdash; auto-id; opt <code>document</code></td></tr>
+          </tbody>
+        </table>
+        <p>Field values cross as plain stryke data; the cdylib handles Firestore's typed encoding (<code>stringValue</code> / <code>integerValue</code> / &hellip;) in both directions. Flat forms are <code>GCP::firestore_get</code> / <code>_set</code> / <code>_delete</code> / <code>_list</code>.</p>
+      </section>
+
+      <section class="tutorial-section">
+        <h2>API reference: <code>use GCP::Compute</code></h2>
+        <table class="example-tbl">
+          <tbody>
+            <tr><td>GCP::Compute::instances $zone, %opts</td><td>&rarr; <code>@{ {name, status, machine_type, zone} }</code></td></tr>
+            <tr><td>GCP::Compute::get $zone, $instance, %opts</td><td>&rarr; <code>{ zone, instance, resource }</code></td></tr>
+            <tr><td>GCP::Compute::start $zone, $instance, %opts</td><td>&rarr; <code>{ instance, action, operation, status }</code></td></tr>
+            <tr><td>GCP::Compute::stop $zone, $instance, %opts</td><td>&rarr; <code>{ instance, action, operation, status }</code></td></tr>
+            <tr><td>GCP::Compute::reset $zone, $instance, %opts</td><td>&rarr; <code>{ instance, action, operation, status }</code></td></tr>
+            <tr><td>GCP::Compute::zones %opts</td><td>&rarr; <code>@{ {name, region, status} }</code></td></tr>
+            <tr><td>GCP::Compute::regions %opts</td><td>&rarr; <code>@{ {name, status} }</code></td></tr>
+            <tr><td>GCP::Compute::machine_types $zone, %opts</td><td>&rarr; <code>@{ {name, guest_cpus, memory_mb, description} }</code></td></tr>
+            <tr><td>GCP::Compute::disks $zone, %opts</td><td>&rarr; <code>@{ {name, size_gb, type, status, zone} }</code></td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="tutorial-section">
+        <h2>API reference: Run / Functions / Logging / Monitoring / IAM</h2>
+        <p><code>use GCP::Run</code></p>
+        <table class="example-tbl">
+          <tbody>
+            <tr><td>GCP::Run::services $region, %opts</td><td>&rarr; <code>@{ {name, uri, latest_revision} }</code></td></tr>
+            <tr><td>GCP::Run::get $region, $service, %opts</td><td>&rarr; <code>{ region, service, resource }</code></td></tr>
+            <tr><td>GCP::Run::revisions $region, $service, %opts</td><td>&rarr; <code>@{ {name, create_time} }</code></td></tr>
+          </tbody>
+        </table>
+        <p><code>use GCP::Functions</code></p>
+        <table class="example-tbl">
+          <tbody>
+            <tr><td>GCP::Functions::list %opts</td><td>&rarr; <code>@{ {name, state, url} }</code> &mdash; opt <code>region</code> (default <code>"-"</code> = all)</td></tr>
+            <tr><td>GCP::Functions::describe $region, $function, %opts</td><td>&rarr; <code>{ region, function, resource }</code></td></tr>
+          </tbody>
+        </table>
+        <p><code>use GCP::Logging</code></p>
+        <table class="example-tbl">
+          <tbody>
+            <tr><td>GCP::Logging::entries %opts</td><td>&rarr; <code>@{ {timestamp, severity, log_name, text_payload, json_payload} }</code> &mdash; opts <code>filter</code>, <code>page_size</code> (50), <code>order</code> (asc/desc)</td></tr>
+            <tr><td>GCP::Logging::write $log, %opts</td><td>&rarr; <code>{ log, written }</code> &mdash; opts <code>text</code> | <code>json</code>, <code>severity</code></td></tr>
+            <tr><td>GCP::Logging::logs %opts</td><td>&rarr; <code>@log_ids</code></td></tr>
+          </tbody>
+        </table>
+        <p><code>use GCP::Monitoring</code></p>
+        <table class="example-tbl">
+          <tbody>
+            <tr><td>GCP::Monitoring::time_series $filter, $start, $end, %opts</td><td>&rarr; <code>@series</code> &mdash; interval is RFC3339</td></tr>
+            <tr><td>GCP::Monitoring::descriptors %opts</td><td>&rarr; <code>@{ {type, display_name, kind, value_type} }</code> &mdash; opt <code>filter</code></td></tr>
+          </tbody>
+        </table>
+        <p><code>use GCP::IAM</code></p>
+        <table class="example-tbl">
+          <tbody>
+            <tr><td>GCP::IAM::get_policy $url, %opts</td><td>&rarr; <code>\%policy</code> &mdash; full <code>:getIamPolicy</code> endpoint</td></tr>
+            <tr><td>GCP::IAM::test_permissions $url, \@perms, %opts</td><td>&rarr; <code>@granted</code> &mdash; full <code>:testIamPermissions</code> endpoint</td></tr>
+            <tr><td>GCP::IAM::service_accounts %opts</td><td>&rarr; <code>@{ {email, display_name, unique_id} }</code></td></tr>
+            <tr><td>GCP::IAM::service_account $email, %opts</td><td>&rarr; <code>{ email, resource }</code></td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="tutorial-section">
+        <h2>Examples</h2>
+        <p>Runnable <code>.stk</code> scripts ship under <code>examples/</code>. Each is read-only or eval-guarded so it exits cleanly when ADC is unreachable.</p>
+        <table class="example-tbl">
+          <tbody>
+            <tr><td>discover.stk</td><td><code>s examples/discover.stk</code> &mdash; version + ADC source + identity + bucket count tour</td></tr>
+            <tr><td>whoami.stk</td><td><code>s examples/whoami.stk</code> &mdash; ADC identity + visible GCS bucket summary</td></tr>
+            <tr><td>gcs_browse.stk</td><td><code>s examples/gcs_browse.stk gs://bucket/prefix/</code> &mdash; list a GCS prefix</td></tr>
+            <tr><td>gcs_put_get.stk</td><td><code>s examples/gcs_put_get.stk gs://bucket/key</code> &mdash; round-trip a string through GCS</td></tr>
+            <tr><td>pubsub_pump.stk</td><td><code>s examples/pubsub_pump.stk my-sub</code> &mdash; long-poll a Pub/Sub subscription</td></tr>
+          </tbody>
+        </table>
+<pre># pubsub_pump.stk core — pull → callback → ack, 5 iterations
+val $n = GCP::PubSub::pump($sub,
+    iterations =&gt; 5,
+    max        =&gt; 10,
+    callback   =&gt; sub ($m) {
+        p "got $m-&gt;{message_id}: $m-&gt;{data}"
+    })
+p "handled $n messages"</pre>
+      </section>
+
+      <section class="tutorial-section">
+        <h2>Tests &amp; dev workflow</h2>
+<pre>cargo test                       # compiles, no live calls
+s test t/                        # ADC-aware end-to-end
+
+# opt into per-service round-trips
+export STRYKE_GCP_TEST_BUCKET=my-test-bucket
+export STRYKE_GCP_TEST_TOPIC=my-test-topic
+export STRYKE_GCP_TEST_SUB=my-test-sub
+s test t/
+
+make            # release build
+make debug
+make test
+make install
+make clean</pre>
+        <p>The suite skips cleanly when the cdylib isn't installed, when ADC isn't reachable, or when the per-service env vars are unset.</p>
       </section>
 
       <section class="tutorial-section">

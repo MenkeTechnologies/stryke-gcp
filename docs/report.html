@@ -101,6 +101,10 @@
         <div class="stat-card"><div class="stat-val cyan">opt-in</div><div class="stat-label">Tier</div></div>
         <div class="stat-card"><div class="stat-val cyan">dlopen</div><div class="stat-label">Load model</div></div>
         <div class="stat-card"><div class="stat-val">JSON-over-FFI</div><div class="stat-label">Envelope</div></div>
+        <div class="stat-card"><div class="stat-val green">84</div><div class="stat-label">gcp__* FFI exports</div></div>
+        <div class="stat-card"><div class="stat-val green">12</div><div class="stat-label">Service families</div></div>
+        <div class="stat-card"><div class="stat-val">11</div><div class="stat-label">.stk wrapper modules</div></div>
+        <div class="stat-card"><div class="stat-val cyan">v0.19.0</div><div class="stat-label">Version</div></div>
       </div>
 
       <hr class="section-rule">
@@ -133,6 +137,46 @@
 # response shape
 {"result": ...}            # success — per-fn shape
 {"error": "&lt;msg&gt;"}        # failure — wrapper die()s with the message</pre>
+
+      <hr class="section-rule">
+      <h2 class="tutorial-title"><span class="step-hash">+</span>DEPENDENCIES</h2>
+      <p>No heavyweight Google SDK crate. The cdylib talks to GCP's REST APIs directly, so the dependency set stays small and vendorable.</p>
+      <table class="arch-table">
+        <thead><tr><th>Crate</th><th>Version</th><th>Role</th></tr></thead>
+        <tbody>
+          <tr><td><code>google-cloud-auth</code></td><td>1</td><td>Application Default Credentials chain (SA file / gcloud ADC / metadata server / WIF)</td></tr>
+          <tr><td><code>reqwest</code></td><td>0.12</td><td>HTTPS client &mdash; <code>rustls-tls-native-roots</code>, <code>json</code>, <code>stream</code> (no default features)</td></tr>
+          <tr><td><code>tokio</code></td><td>1</td><td>Async runtime &mdash; <code>rt-multi-thread</code>, <code>macros</code>, <code>io-std</code>, <code>io-util</code>, <code>fs</code></td></tr>
+          <tr><td><code>serde</code> / <code>serde_json</code></td><td>1</td><td>JSON serialization; <code>preserve_order</code> for stable response shapes</td></tr>
+          <tr><td><code>base64</code></td><td>0.22</td><td>Pub/Sub payload + Secret Manager value encoding</td></tr>
+          <tr><td><code>urlencoding</code></td><td>2</td><td>GCS object-name / path encoding</td></tr>
+          <tr><td><code>once_cell</code> / <code>parking_lot</code></td><td>1 / 0.12</td><td>Cached runtime + client + ADC credentials in <code>OnceCell</code></td></tr>
+          <tr><td><code>anyhow</code> / <code>http</code></td><td>1 / 1</td><td>Error plumbing + HTTP types</td></tr>
+        </tbody>
+      </table>
+      <p>Release profile: <code>opt-level = 3</code>, <code>lto = "thin"</code>, <code>codegen-units = 1</code>, <code>strip = true</code>, <code>panic = "abort"</code>. Crate is <code>publish = false</code> &mdash; distribution is via <code>s pkg install</code> / GitHub release artifacts, not crates.io.</p>
+
+      <hr class="section-rule">
+      <h2 class="tutorial-title"><span class="step-hash">*</span>FFI EXPORT INVENTORY</h2>
+      <p>84 <code>gcp__*</code> entry points, declared in <code>stryke.toml</code>'s <code>[ffi].exports</code> table and matched 1:1 by <code>#[no_mangle] pub extern "C" fn</code> definitions in <code>src/lib.rs</code>. Grouped by service:</p>
+      <table class="arch-table">
+        <thead><tr><th>Service</th><th>Exports</th></tr></thead>
+        <tbody>
+          <tr><td>Plumbing</td><td><code>pkg_version</code>, <code>identity</code></td></tr>
+          <tr><td>Cloud Storage</td><td><code>gcs_list_buckets</code>, <code>gcs_list_objects</code>, <code>gcs_get_object</code>, <code>gcs_put_object</code>, <code>gcs_delete_object</code>, <code>gcs_head_object</code>, <code>gcs_copy_object</code>, <code>gcs_compose</code>, <code>gcs_get_iam_policy</code>, <code>gcs_set_iam_policy</code></td></tr>
+          <tr><td>Pub/Sub</td><td><code>pubsub_publish</code>, <code>pubsub_pull</code>, <code>pubsub_ack</code>, <code>pubsub_list_topics</code>, <code>pubsub_list_subscriptions</code>, <code>pubsub_create_topic</code>, <code>pubsub_create_subscription</code>, <code>pubsub_delete_topic</code>, <code>pubsub_delete_subscription</code>, <code>pubsub_get_topic</code>, <code>pubsub_topic_subscriptions</code></td></tr>
+          <tr><td>Secret Manager</td><td><code>secret_access</code>, <code>secret_create</code>, <code>secret_add_version</code>, <code>secret_list</code>, <code>secret_list_versions</code>, <code>secret_delete</code></td></tr>
+          <tr><td>BigQuery</td><td><code>bigquery_query</code>, <code>bigquery_insert</code>, <code>bigquery_list_datasets</code>, <code>bigquery_get_dataset</code>, <code>bigquery_list_tables</code>, <code>bigquery_get_table</code>, <code>bigquery_list_jobs</code></td></tr>
+          <tr><td>Firestore</td><td><code>firestore_get</code>, <code>firestore_set</code>, <code>firestore_delete</code>, <code>firestore_list</code>, <code>firestore_query</code>, <code>firestore_create</code></td></tr>
+          <tr><td>Compute Engine</td><td><code>compute_list_instances</code>, <code>compute_get_instance</code>, <code>compute_start_instance</code>, <code>compute_stop_instance</code>, <code>compute_reset_instance</code>, <code>compute_list_zones</code>, <code>compute_list_regions</code>, <code>compute_list_machine_types</code>, <code>compute_list_disks</code></td></tr>
+          <tr><td>Cloud Run</td><td><code>run_list_services</code>, <code>run_get_service</code>, <code>run_list_revisions</code></td></tr>
+          <tr><td>Cloud Functions</td><td><code>functions_list</code>, <code>functions_describe</code></td></tr>
+          <tr><td>Cloud Logging</td><td><code>logging_list_entries</code>, <code>logging_write_entry</code>, <code>logging_list_logs</code></td></tr>
+          <tr><td>Cloud Monitoring</td><td><code>monitoring_list_time_series</code>, <code>monitoring_list_metric_descriptors</code></td></tr>
+          <tr><td>IAM</td><td><code>iam_get_policy</code>, <code>iam_test_permissions</code>, <code>iam_list_service_accounts</code>, <code>iam_get_service_account</code></td></tr>
+          <tr><td>Pure helpers (no network)</td><td><code>parse_gs_uri</code>, <code>build_gs_uri</code>, <code>gs_uri_to_url</code>, <code>url_to_gs_uri</code>, <code>parse_resource_name</code>, <code>resource_name_parent</code>, <code>build_resource_name</code>, <code>parse_table_ref</code>, <code>build_table_ref</code>, <code>valid_bucket_name</code>, <code>valid_project_id</code>, <code>valid_object_name</code>, <code>region_for_zone</code>, <code>valid_label</code>, <code>valid_pubsub_id</code>, <code>valid_service_account_id</code>, <code>valid_secret_id</code>, <code>valid_dataset_id</code>, <code>valid_table_id</code></td></tr>
+        </tbody>
+      </table>
 
       <hr class="section-rule">
       <h2 class="tutorial-title"><span class="step-hash">/</span>SCOPE</h2>
