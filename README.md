@@ -148,7 +148,7 @@ for val $m (@msgs) {
 # pump = pull → callback → ack each
 GCP::PubSub::pump "my-sub",
     iterations => 5,
-    callback => fn ($m) { handle_message $m->{data} }
+    callback => fn { handle_message _->{data} }
 ```
 
 Project / endpoint overrides on every public fn:
