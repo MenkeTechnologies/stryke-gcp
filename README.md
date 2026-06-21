@@ -125,8 +125,8 @@ use GCP::PubSub
 p to_json GCP::identity()
 
 # GCS — list, get, put, rm.
-my @entries = GCP::Storage::ls "gs://my-bucket/prefix/", delimiter => "/"
-for my $e (@entries) {
+val @entries = GCP::Storage::ls "gs://my-bucket/prefix/", delimiter => "/"
+for val $e (@entries) {
     p "$e->{type}: $e->{key} ($e->{size} bytes)"
 }
 
@@ -140,15 +140,15 @@ GCP::Storage::rm "gs://my-bucket/hello.txt"
 GCP::PubSub::publish "my-topic", "event payload",
                      attrs => { source => "stryke" }
 
-my @msgs = GCP::PubSub::pull "my-sub", max => 10, ack => 1
-for my $m (@msgs) {
+val @msgs = GCP::PubSub::pull "my-sub", max => 10, ack => 1
+for val $m (@msgs) {
     p "got $m->{message_id}: $m->{data}"
 }
 
 # pump = pull → callback → ack each
 GCP::PubSub::pump "my-sub",
     iterations => 5,
-    callback => sub ($m) { handle_message $m->{data} }
+    callback => fn ($m) { handle_message $m->{data} }
 ```
 
 Project / endpoint overrides on every public fn:
