@@ -41,3 +41,9 @@ fn GCP::BigQuery::tables ($dataset, %opts) {
 fn GCP::BigQuery::table ($dataset, $table, %opts) {
     GCP::bigquery_get_table($dataset, $table, %opts)
 }
+
+## List recent jobs in the project — array of { id, state, job_type, user_email }.
+## opts: all_users (default 0), max_results (default 50), state_filter.
+fn GCP::BigQuery::jobs (%opts) {
+    GCP::bigquery_list_jobs(%opts)
+}

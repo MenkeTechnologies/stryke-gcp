@@ -55,6 +55,8 @@ assert_ok exists &GCP::PubSub::subs, "GCP::PubSub::subs exists"
 assert_ok exists &GCP::PubSub::create_topic, "GCP::PubSub::create_topic exists"
 assert_ok exists &GCP::PubSub::create_sub, "GCP::PubSub::create_sub exists"
 assert_ok exists &GCP::PubSub::pump, "GCP::PubSub::pump exists"
+assert_ok exists &GCP::PubSub::get_topic, "GCP::PubSub::get_topic exists"
+assert_ok exists &GCP::PubSub::topic_subs, "GCP::PubSub::topic_subs exists"
 
 # ── Storage.stk ──────────────────────────────────────────────
 assert_ok exists &GCP::Storage::ls, "GCP::Storage::ls exists"
@@ -144,6 +146,14 @@ assert_ok exists &GCP::bigquery_list_tables, "GCP::bigquery_list_tables exists"
 assert_ok exists &GCP::bigquery_get_table, "GCP::bigquery_get_table exists"
 assert_ok exists &GCP::gcs_get_iam_policy, "GCP::gcs_get_iam_policy exists"
 assert_ok exists &GCP::gcs_set_iam_policy, "GCP::gcs_set_iam_policy exists"
+assert_ok exists &GCP::compute_list_regions, "GCP::compute_list_regions exists"
+assert_ok exists &GCP::compute_list_machine_types, "GCP::compute_list_machine_types exists"
+assert_ok exists &GCP::compute_list_disks, "GCP::compute_list_disks exists"
+assert_ok exists &GCP::pubsub_get_topic, "GCP::pubsub_get_topic exists"
+assert_ok exists &GCP::pubsub_topic_subscriptions, "GCP::pubsub_topic_subscriptions exists"
+assert_ok exists &GCP::secret_list_versions, "GCP::secret_list_versions exists"
+assert_ok exists &GCP::secret_delete, "GCP::secret_delete exists"
+assert_ok exists &GCP::bigquery_list_jobs, "GCP::bigquery_list_jobs exists"
 
 # ── Compute.stk ──
 assert_ok exists &GCP::Compute::instances, "GCP::Compute::instances exists"
@@ -152,6 +162,9 @@ assert_ok exists &GCP::Compute::start, "GCP::Compute::start exists"
 assert_ok exists &GCP::Compute::stop, "GCP::Compute::stop exists"
 assert_ok exists &GCP::Compute::reset, "GCP::Compute::reset exists"
 assert_ok exists &GCP::Compute::zones, "GCP::Compute::zones exists"
+assert_ok exists &GCP::Compute::regions, "GCP::Compute::regions exists"
+assert_ok exists &GCP::Compute::machine_types, "GCP::Compute::machine_types exists"
+assert_ok exists &GCP::Compute::disks, "GCP::Compute::disks exists"
 
 # ── Run.stk ──
 assert_ok exists &GCP::Run::services, "GCP::Run::services exists"
@@ -182,6 +195,7 @@ assert_ok exists &GCP::BigQuery::datasets, "GCP::BigQuery::datasets exists"
 assert_ok exists &GCP::BigQuery::dataset, "GCP::BigQuery::dataset exists"
 assert_ok exists &GCP::BigQuery::tables, "GCP::BigQuery::tables exists"
 assert_ok exists &GCP::BigQuery::table, "GCP::BigQuery::table exists"
+assert_ok exists &GCP::BigQuery::jobs, "GCP::BigQuery::jobs exists"
 
 # ── Storage.stk extras ──
 assert_ok exists &GCP::Storage::get_iam_policy, "GCP::Storage::get_iam_policy exists"

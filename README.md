@@ -59,12 +59,12 @@ crates currently impose.
 | Service | Status |
 |---|---|
 | Cloud Storage (GCS) | shipped — ls / get / put / rm / head / cp / compose / buckets / get+set IAM policy |
-| Pub/Sub | shipped — publish / pull / ack / list+create+delete topics+subs |
-| Secret Manager | shipped — access / create / add-version / list |
+| Pub/Sub | shipped — publish / pull / ack / list+create+delete topics+subs / get topic / topic subscriptions |
+| Secret Manager | shipped — access / create / add-version / list / list-versions / delete |
 | Auth identity | shipped — ADC + project resolution |
-| BigQuery | shipped — query (jobs.query) + streaming insert + list/get datasets + list/get tables |
+| BigQuery | shipped — query (jobs.query) + streaming insert + list/get datasets + list/get tables + list jobs |
 | Firestore | shipped — get / set / delete / list / query / create (native-mode REST) |
-| Compute Engine | shipped — list/get instances / start / stop / reset / list zones |
+| Compute Engine | shipped — list/get instances / start / stop / reset / list zones / list regions / list machine types / list disks |
 | Cloud Run | shipped — list/get services / list revisions (Admin API v2) |
 | Cloud Functions | shipped — list / describe (API v2) |
 | Cloud Logging | shipped — list entries / write entry / list logs (API v2) |
@@ -219,6 +219,8 @@ GCP::PubSub::create_topic $topic, %opts → \%resp
 GCP::PubSub::create_sub   $name, $topic, %opts → \%resp   # opts: ack_deadline
 GCP::PubSub::delete_topic $topic, %opts → \%resp
 GCP::PubSub::delete_sub   $sub, %opts → \%resp
+GCP::PubSub::get_topic    $topic, %opts → { topic, resource }
+GCP::PubSub::topic_subs   $topic, %opts → @subscription_ids
 GCP::PubSub::pump         $sub, %opts → $count             # callback + auto-ack
 ```
 
@@ -260,6 +262,9 @@ GCP::Compute::start     $zone, $instance, %opts → { instance, action, operatio
 GCP::Compute::stop      $zone, $instance, %opts → { instance, action, operation, status }
 GCP::Compute::reset     $zone, $instance, %opts → { instance, action, operation, status }
 GCP::Compute::zones     %opts → @{ {name, region, status} }
+GCP::Compute::regions   %opts → @{ {name, status} }
+GCP::Compute::machine_types $zone, %opts → @{ {name, guest_cpus, memory_mb, description} }
+GCP::Compute::disks     $zone, %opts → @{ {name, size_gb, type, status, zone} }
 ```
 
 ### `use GCP::Run`
@@ -309,6 +314,8 @@ GCP::BigQuery::datasets %opts → @dataset_ids
 GCP::BigQuery::dataset  $dataset, %opts → { dataset, resource }
 GCP::BigQuery::tables   $dataset, %opts → @table_ids
 GCP::BigQuery::table    $dataset, $table, %opts → { dataset, table, resource }
+GCP::BigQuery::jobs     %opts → @{ {id, state, job_type, user_email} }
+                                              # opts: all_users (0), max_results (50), state_filter
 ```
 
 ### `use GCP` — Secret Manager
@@ -318,6 +325,8 @@ GCP::secret_access      $secret, %opts → $value    # opts: version (default "l
 GCP::secret_create      $secret, %opts → \%resp    # new empty secret, automatic replication
 GCP::secret_add_version $secret, $value, %opts → \%resp
 GCP::secret_list        %opts → @secret_ids
+GCP::secret_list_versions $secret, %opts → @{ {name, state, create_time} }  # newest first
+GCP::secret_delete      $secret, %opts → 1   # deletes the secret and all versions
 ```
 
 Topic / subscription names accept bare (`my-topic`) or fully qualified

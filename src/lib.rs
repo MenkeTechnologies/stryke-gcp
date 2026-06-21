@@ -461,6 +461,18 @@ fn leaf_name(full: &str) -> &str {
     full.rsplit('/').next().unwrap_or(full)
 }
 
+/// Interpret a JSON value as a boolean flag tolerant of the FFI bridge, which
+/// can deliver `key => 1` as a JSON number (not a bool) and string flags.
+/// Mirrors the inline coercion `op_build_table_ref` uses for `legacy`.
+fn truthy(v: &Value) -> bool {
+    match v {
+        Value::Bool(b) => *b,
+        Value::Number(n) => n.as_i64().is_some_and(|x| x != 0),
+        Value::String(s) => s == "1" || s.eq_ignore_ascii_case("true"),
+        _ => false,
+    }
+}
+
 async fn op_pubsub_list_topics(opts: Value) -> Result<Value> {
     let project = resolve_project(&opts).ok_or_else(|| anyhow!("missing project"))?;
     let token = auth_header().await?;
@@ -571,6 +583,62 @@ async fn op_pubsub_create_subscription(opts: Value) -> Result<Value> {
     )
 }
 
+/// Get one Pub/Sub topic (`topics.get`). opts: topic (required). Returns
+/// `{topic, resource}` with the full topic resource.
+async fn op_pubsub_get_topic(opts: Value) -> Result<Value> {
+    let project = resolve_project(&opts).ok_or_else(|| anyhow!("missing project"))?;
+    let topic = opts["topic"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing topic"))?;
+    let token = auth_header().await?;
+    let url = format!(
+        "https://pubsub.googleapis.com/v1/projects/{}/topics/{}",
+        urlencoding::encode(&project),
+        urlencoding::encode(topic)
+    );
+    let body: Value = client()
+        .get(&url)
+        .header("Authorization", token)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    Ok(json!({"topic": topic, "resource": body}))
+}
+
+/// List the subscriptions attached to a topic (`topics.subscriptions.list`).
+/// opts: topic (required). Returns `{topic, subscriptions: [<sub id>]}`.
+async fn op_pubsub_topic_subscriptions(opts: Value) -> Result<Value> {
+    let project = resolve_project(&opts).ok_or_else(|| anyhow!("missing project"))?;
+    let topic = opts["topic"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing topic"))?;
+    let token = auth_header().await?;
+    let url = format!(
+        "https://pubsub.googleapis.com/v1/projects/{}/topics/{}/subscriptions",
+        urlencoding::encode(&project),
+        urlencoding::encode(topic)
+    );
+    let body: Value = client()
+        .get(&url)
+        .header("Authorization", token)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let subs: Vec<String> = body["subscriptions"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|s| s.as_str().map(|n| leaf_name(n).to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(json!({"topic": topic, "subscriptions": subs}))
+}
+
 // ── Secret Manager ───────────────────────────────────────────────────────────
 
 /// Access a secret version's payload. opts: secret, version (default "latest").
@@ -660,6 +728,67 @@ async fn op_secret_add_version(opts: Value) -> Result<Value> {
         .error_for_status()?;
     let info: Value = resp.json().await?;
     Ok(json!({"version": leaf_name(info["name"].as_str().unwrap_or("")), "added": true}))
+}
+
+/// List the versions of a secret (`secrets.versions.list`, newest first). opts:
+/// secret (required). Returns `{secret, versions: [{name, state, create_time}]}`
+/// where `name` is the bare version id (e.g. "3" or "latest").
+async fn op_secret_list_versions(opts: Value) -> Result<Value> {
+    let project = resolve_project(&opts).ok_or_else(|| anyhow!("missing project"))?;
+    let secret = opts["secret"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing secret"))?;
+    let token = auth_header().await?;
+    let url = format!(
+        "https://secretmanager.googleapis.com/v1/projects/{}/secrets/{}/versions",
+        urlencoding::encode(&project),
+        urlencoding::encode(secret)
+    );
+    let body: Value = client()
+        .get(&url)
+        .header("Authorization", token)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let versions: Vec<Value> = body["versions"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .map(|v| {
+                    json!({
+                        "name": leaf_name(v["name"].as_str().unwrap_or("")),
+                        "state": v["state"].as_str().unwrap_or(""),
+                        "create_time": v["createTime"].as_str().unwrap_or(""),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(json!({"secret": secret, "versions": versions}))
+}
+
+/// Delete a secret and all its versions (`secrets.delete`). opts: secret
+/// (required). Returns `{secret, deleted: true}`.
+async fn op_secret_delete(opts: Value) -> Result<Value> {
+    let project = resolve_project(&opts).ok_or_else(|| anyhow!("missing project"))?;
+    let secret = opts["secret"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing secret"))?;
+    let token = auth_header().await?;
+    let url = format!(
+        "https://secretmanager.googleapis.com/v1/projects/{}/secrets/{}",
+        urlencoding::encode(&project),
+        urlencoding::encode(secret)
+    );
+    client()
+        .delete(&url)
+        .header("Authorization", token)
+        .send()
+        .await?
+        .error_for_status()?;
+    Ok(json!({"secret": secret, "deleted": true}))
 }
 
 /// Delete a Pub/Sub topic.
@@ -1325,6 +1454,119 @@ async fn op_compute_list_zones(opts: Value) -> Result<Value> {
     Ok(json!({"project": project, "zones": zones}))
 }
 
+/// List the Compute Engine regions available to the project (`regions.list`).
+/// Returns `{regions: [{name, status}]}`.
+async fn op_compute_list_regions(opts: Value) -> Result<Value> {
+    let project = resolve_project(&opts).ok_or_else(|| anyhow!("missing project"))?;
+    let token = auth_header().await?;
+    let url = format!(
+        "https://compute.googleapis.com/compute/v1/projects/{}/regions",
+        urlencoding::encode(&project)
+    );
+    let body: Value = client()
+        .get(&url)
+        .header("Authorization", token)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let regions: Vec<Value> = body["items"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .map(|r| {
+                    json!({
+                        "name": r["name"].as_str().unwrap_or(""),
+                        "status": r["status"].as_str().unwrap_or(""),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(json!({"project": project, "regions": regions}))
+}
+
+/// List the machine types available in a zone (`machineTypes.list`). opts: zone
+/// (required). Returns `{zone, machine_types: [{name, guest_cpus, memory_mb,
+/// description}]}`.
+async fn op_compute_list_machine_types(opts: Value) -> Result<Value> {
+    let project = resolve_project(&opts).ok_or_else(|| anyhow!("missing project"))?;
+    let zone = opts["zone"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing zone"))?;
+    let token = auth_header().await?;
+    let url = format!(
+        "https://compute.googleapis.com/compute/v1/projects/{}/zones/{}/machineTypes",
+        urlencoding::encode(&project),
+        urlencoding::encode(zone)
+    );
+    let body: Value = client()
+        .get(&url)
+        .header("Authorization", token)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let types: Vec<Value> = body["items"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .map(|m| {
+                    json!({
+                        "name": m["name"].as_str().unwrap_or(""),
+                        "guest_cpus": m["guestCpus"].clone(),
+                        "memory_mb": m["memoryMb"].clone(),
+                        "description": m["description"].as_str().unwrap_or(""),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(json!({"zone": zone, "machine_types": types}))
+}
+
+/// List the persistent disks in a zone (`disks.list`). opts: zone (required).
+/// Returns `{zone, disks: [{name, size_gb, type, status, zone}]}`.
+async fn op_compute_list_disks(opts: Value) -> Result<Value> {
+    let project = resolve_project(&opts).ok_or_else(|| anyhow!("missing project"))?;
+    let zone = opts["zone"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing zone"))?;
+    let token = auth_header().await?;
+    let url = format!(
+        "https://compute.googleapis.com/compute/v1/projects/{}/zones/{}/disks",
+        urlencoding::encode(&project),
+        urlencoding::encode(zone)
+    );
+    let body: Value = client()
+        .get(&url)
+        .header("Authorization", token)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let disks: Vec<Value> = body["items"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .map(|d| {
+                    json!({
+                        "name": d["name"].as_str().unwrap_or(""),
+                        "size_gb": d["sizeGb"].as_str().unwrap_or("0"),
+                        "type": leaf_name(d["type"].as_str().unwrap_or("")),
+                        "status": d["status"].as_str().unwrap_or(""),
+                        "zone": leaf_name(d["zone"].as_str().unwrap_or("")),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(json!({"zone": zone, "disks": disks}))
+}
+
 // ── Cloud Run ───────────────────────────────────────────────────────────────
 
 /// List Cloud Run (v2) services in a region. opts: region (required). Returns
@@ -1930,6 +2172,54 @@ async fn op_bigquery_get_table(opts: Value) -> Result<Value> {
         .json()
         .await?;
     Ok(json!({"dataset": dataset, "table": table, "resource": body}))
+}
+
+/// List recent BigQuery jobs in the project (`jobs.list`). opts: all_users
+/// (default false — only the caller's jobs), max_results (default 50),
+/// state_filter (one of "done"/"pending"/"running"). Returns
+/// `{project, jobs: [{id, state, job_type, user_email}]}`.
+async fn op_bigquery_list_jobs(opts: Value) -> Result<Value> {
+    let project = resolve_project(&opts).ok_or_else(|| anyhow!("missing project"))?;
+    let all_users = truthy(&opts["all_users"]);
+    let max_results = opts["max_results"].as_u64().unwrap_or(50);
+    let token = auth_header().await?;
+    let mut url = format!(
+        "https://bigquery.googleapis.com/bigquery/v2/projects/{}/jobs?allUsers={}&maxResults={}",
+        urlencoding::encode(&project),
+        all_users,
+        max_results
+    );
+    if let Some(sf) = opts["state_filter"].as_str() {
+        url.push_str(&format!("&stateFilter={}", urlencoding::encode(sf)));
+    }
+    let body: Value = client()
+        .get(&url)
+        .header("Authorization", token)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let jobs: Vec<Value> = body["jobs"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .map(|j| {
+                    json!({
+                        "id": j["jobReference"]["jobId"].as_str().unwrap_or(""),
+                        "state": j["status"]["state"].as_str().unwrap_or(""),
+                        "job_type": if j["statistics"]["query"].is_object() {
+                            "query"
+                        } else {
+                            j["configuration"]["jobType"].as_str().unwrap_or("")
+                        },
+                        "user_email": j["user_email"].as_str().unwrap_or(""),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(json!({"project": project, "jobs": jobs}))
 }
 
 // ── GCS IAM ─────────────────────────────────────────────────────────────────
@@ -3048,6 +3338,46 @@ pub extern "C" fn gcp__gcs_get_iam_policy(args: *const c_char) -> *const c_char 
 #[no_mangle]
 pub extern "C" fn gcp__gcs_set_iam_policy(args: *const c_char) -> *const c_char {
     ffi_call_async(args, op_gcs_set_iam_policy)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__compute_list_regions(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_compute_list_regions)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__compute_list_machine_types(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_compute_list_machine_types)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__compute_list_disks(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_compute_list_disks)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__pubsub_get_topic(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_pubsub_get_topic)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__pubsub_topic_subscriptions(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_pubsub_topic_subscriptions)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__secret_list_versions(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_secret_list_versions)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__secret_delete(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_secret_delete)
+}
+
+#[no_mangle]
+pub extern "C" fn gcp__bigquery_list_jobs(args: *const c_char) -> *const c_char {
+    ffi_call_async(args, op_bigquery_list_jobs)
 }
 
 #[cfg(test)]
@@ -4384,5 +4714,109 @@ mod tests {
             json!(true)
         );
         assert!(op_valid_table_id(json!({})).is_err());
+    }
+
+    /// `truthy` must accept the three wire forms the FFI bridge can deliver for
+    /// a flag (`all_users => 1` arrives as a JSON number, not a bool) and reject
+    /// everything else. `bigquery_list_jobs` relies on this for `all_users`; a
+    /// regression that only matched `Value::Bool` would silently scope every
+    /// listing to the caller's own jobs even when the caller asked for all.
+    #[test]
+    fn truthy_accepts_bool_number_and_string_forms() {
+        assert!(truthy(&json!(true)));
+        assert!(truthy(&json!(1)));
+        assert!(truthy(&json!("1")));
+        assert!(truthy(&json!("true")));
+        assert!(truthy(&json!("TRUE")));
+        assert!(!truthy(&json!(false)));
+        assert!(!truthy(&json!(0)));
+        assert!(!truthy(&json!("0")));
+        assert!(!truthy(&json!("no")));
+        assert!(!truthy(&Value::Null));
+    }
+
+    /// The zone-scoped Compute list ops (machine_types, disks) resolve `project`
+    /// (from env here) BEFORE validating `zone`, matching the existing
+    /// instance/zone family. Pins that precedence so a caller missing both is
+    /// pointed at the project first when no project source exists, and at the
+    /// zone once a project is resolvable. Deterministic without ADC — both
+    /// checks precede `auth_header()`.
+    #[test]
+    fn compute_zone_list_ops_validate_project_then_zone() {
+        with_env(KEYS, || {
+            std::env::set_var("GOOGLE_CLOUD_PROJECT", "test-project");
+            for f in [
+                gcp__compute_list_machine_types as extern "C" fn(*const c_char) -> *const c_char,
+                gcp__compute_list_disks,
+            ] {
+                let v = call_export(f, &json!({}));
+                assert_eq!(
+                    v["error"].as_str(),
+                    Some("missing zone"),
+                    "project from env, zone absent → must report zone"
+                );
+            }
+        });
+        with_env(KEYS, || {
+            for f in [
+                gcp__compute_list_machine_types as extern "C" fn(*const c_char) -> *const c_char,
+                gcp__compute_list_disks,
+                gcp__compute_list_regions,
+            ] {
+                let v = call_export(f, &json!({"zone": "us-central1-a"}));
+                assert_eq!(
+                    v["error"].as_str(),
+                    Some("missing project"),
+                    "no project source → project check fires first"
+                );
+            }
+        });
+    }
+
+    /// The Pub/Sub topic-scoped read ops (get_topic, topic_subscriptions) and
+    /// the Secret ops (list_versions, delete) resolve `project` before their
+    /// required resource arg. Pins both precedence and that the resource error
+    /// message matches what the .stk wrapper's callers expect. Deterministic
+    /// without ADC.
+    #[test]
+    fn topic_and_secret_ops_validate_project_then_resource() {
+        with_env(KEYS, || {
+            std::env::set_var("GOOGLE_CLOUD_PROJECT", "test-project");
+            for f in [
+                gcp__pubsub_get_topic as extern "C" fn(*const c_char) -> *const c_char,
+                gcp__pubsub_topic_subscriptions,
+            ] {
+                let v = call_export(f, &json!({}));
+                assert_eq!(v["error"].as_str(), Some("missing topic"));
+            }
+            for f in [
+                gcp__secret_list_versions as extern "C" fn(*const c_char) -> *const c_char,
+                gcp__secret_delete,
+            ] {
+                let v = call_export(f, &json!({}));
+                assert_eq!(v["error"].as_str(), Some("missing secret"));
+            }
+        });
+        with_env(KEYS, || {
+            let v = call_export(gcp__pubsub_get_topic, &json!({"topic": "t"}));
+            assert_eq!(
+                v["error"].as_str(),
+                Some("missing project"),
+                "no project source → project check precedes topic check"
+            );
+            let v2 = call_export(gcp__secret_delete, &json!({"secret": "s"}));
+            assert_eq!(v2["error"].as_str(), Some("missing project"));
+        });
+    }
+
+    /// `bigquery_list_jobs` resolves `project` (the only required input) from
+    /// env or opt. With no project source it must report the project gap before
+    /// touching ADC. Pins that the project resolution precedes `auth_header()`.
+    #[test]
+    fn bigquery_list_jobs_requires_project() {
+        with_env(KEYS, || {
+            let v = call_export(gcp__bigquery_list_jobs, &json!({}));
+            assert_eq!(v["error"].as_str(), Some("missing project"));
+        });
     }
 }

@@ -35,3 +35,18 @@ fn GCP::Compute::reset ($zone, $instance, %opts) {
 fn GCP::Compute::zones (%opts) {
     GCP::compute_list_zones(%opts)
 }
+
+## List the regions available to the project — array of { name, status }.
+fn GCP::Compute::regions (%opts) {
+    GCP::compute_list_regions(%opts)
+}
+
+## List machine types in $zone — array of { name, guest_cpus, memory_mb, description }.
+fn GCP::Compute::machine_types ($zone, %opts) {
+    GCP::compute_list_machine_types($zone, %opts)
+}
+
+## List persistent disks in $zone — array of { name, size_gb, type, status, zone }.
+fn GCP::Compute::disks ($zone, %opts) {
+    GCP::compute_list_disks($zone, %opts)
+}

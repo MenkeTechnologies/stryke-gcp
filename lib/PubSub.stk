@@ -82,6 +82,16 @@ fn GCP::PubSub::delete_sub ($subscription, %opts) {
     GCP::pubsub_delete_subscription($subscription, %opts)
 }
 
+## Get one topic's full resource. Returns { topic, resource }.
+fn GCP::PubSub::get_topic ($topic, %opts) {
+    GCP::pubsub_get_topic(GCP::PubSub::_bare($topic), %opts)
+}
+
+## List subscription ids attached to $topic. Returns an array of strings.
+fn GCP::PubSub::topic_subs ($topic, %opts) {
+    GCP::pubsub_topic_subscriptions(GCP::PubSub::_bare($topic), %opts)
+}
+
 ## Convenience: pull → callback → ack each message. Returns count handled.
 fn GCP::PubSub::pump ($subscription, %opts) {
     die "GCP::PubSub::pump: callback => sub { … } is required" unless defined $opts{callback}

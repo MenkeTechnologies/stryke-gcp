@@ -162,6 +162,18 @@ fn GCP::pubsub_create_subscription ($subscription, $topic, %opts) {
     GCP::_decode("pubsub_create_subscription", gcp__pubsub_create_subscription(to_json($r)))
 }
 
+## Get one Pub/Sub topic's full resource. Returns { topic, resource }.
+fn GCP::pubsub_get_topic ($topic, %opts) {
+    val $r = GCP::_req({ topic => $topic }, \%opts)
+    GCP::_decode("pubsub_get_topic", gcp__pubsub_get_topic(to_json($r)))
+}
+
+## List the subscription ids attached to $topic. Returns an array of strings.
+fn GCP::pubsub_topic_subscriptions ($topic, %opts) {
+    val $r = GCP::_req({ topic => $topic }, \%opts)
+    @{ GCP::_decode("pubsub_topic_subscriptions", gcp__pubsub_topic_subscriptions(to_json($r)))->{subscriptions} }
+}
+
 # ── Secret Manager ───────────────────────────────────────────────────
 
 ## Access a secret's payload. opts: version (default "latest"). Returns the
@@ -181,6 +193,19 @@ fn GCP::secret_create ($secret, %opts) {
 fn GCP::secret_add_version ($secret, $value, %opts) {
     val $r = GCP::_req({ secret => $secret, value => $value }, \%opts)
     GCP::_decode("secret_add_version", gcp__secret_add_version(to_json($r)))
+}
+
+## List the versions of $secret (newest first). Returns an array of
+## { name, state, create_time } hashrefs.
+fn GCP::secret_list_versions ($secret, %opts) {
+    val $r = GCP::_req({ secret => $secret }, \%opts)
+    @{ GCP::_decode("secret_list_versions", gcp__secret_list_versions(to_json($r)))->{versions} }
+}
+
+## Delete $secret and all its versions. Returns 1 on success.
+fn GCP::secret_delete ($secret, %opts) {
+    val $r = GCP::_req({ secret => $secret }, \%opts)
+    GCP::_decode("secret_delete", gcp__secret_delete(to_json($r)))->{deleted} ? 1 : 0
 }
 
 ## Delete a Pub/Sub topic.
@@ -306,6 +331,26 @@ fn GCP::compute_reset_instance ($zone, $instance, %opts) {
 ## { name, region, status } hashrefs.
 fn GCP::compute_list_zones (%opts) {
     @{ GCP::_decode("compute_list_zones", gcp__compute_list_zones(to_json(GCP::_req({}, \%opts))))->{zones} }
+}
+
+## List the Compute Engine regions available to the project. Returns an array of
+## { name, status } hashrefs.
+fn GCP::compute_list_regions (%opts) {
+    @{ GCP::_decode("compute_list_regions", gcp__compute_list_regions(to_json(GCP::_req({}, \%opts))))->{regions} }
+}
+
+## List the machine types available in $zone. Returns an array of
+## { name, guest_cpus, memory_mb, description } hashrefs.
+fn GCP::compute_list_machine_types ($zone, %opts) {
+    val $r = GCP::_req({ zone => $zone }, \%opts)
+    @{ GCP::_decode("compute_list_machine_types", gcp__compute_list_machine_types(to_json($r)))->{machine_types} }
+}
+
+## List the persistent disks in $zone. Returns an array of
+## { name, size_gb, type, status, zone } hashrefs.
+fn GCP::compute_list_disks ($zone, %opts) {
+    val $r = GCP::_req({ zone => $zone }, \%opts)
+    @{ GCP::_decode("compute_list_disks", gcp__compute_list_disks(to_json($r)))->{disks} }
 }
 
 # ── Cloud Run ─────────────────────────────────────────────────────────
@@ -442,6 +487,16 @@ fn GCP::bigquery_list_tables ($dataset, %opts) {
 fn GCP::bigquery_get_table ($dataset, $table, %opts) {
     val $r = GCP::_req({ dataset => $dataset, table => $table }, \%opts)
     GCP::_decode("bigquery_get_table", gcp__bigquery_get_table(to_json($r)))
+}
+
+## List recent BigQuery jobs in the project. opts: all_users (default 0),
+## max_results (default 50), state_filter ("done"/"pending"/"running"). Returns
+## an array of { id, state, job_type, user_email } hashrefs.
+fn GCP::bigquery_list_jobs (%opts) {
+    val $r = GCP::_req(
+        { all_users => $opts{all_users}, max_results => $opts{max_results},
+          state_filter => $opts{state_filter} }, \%opts)
+    @{ GCP::_decode("bigquery_list_jobs", gcp__bigquery_list_jobs(to_json($r)))->{jobs} }
 }
 
 # ── GCS IAM ───────────────────────────────────────────────────────────

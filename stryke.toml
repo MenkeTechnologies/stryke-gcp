@@ -87,6 +87,14 @@ exports = [
     "gcp__bigquery_get_table",
     "gcp__gcs_get_iam_policy",
     "gcp__gcs_set_iam_policy",
+    "gcp__compute_list_regions",
+    "gcp__compute_list_machine_types",
+    "gcp__compute_list_disks",
+    "gcp__pubsub_get_topic",
+    "gcp__pubsub_topic_subscriptions",
+    "gcp__secret_list_versions",
+    "gcp__secret_delete",
+    "gcp__bigquery_list_jobs",
 ]
 
 [scripts]
