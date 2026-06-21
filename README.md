@@ -28,7 +28,7 @@ stryke core binary so the daily-driver install stays slim.
 ## Table of Contents
 
 - [\[0x00\] Why this is a package, not a builtin](#0x00-why-this-is-a-package-not-a-builtin)
-- [\[0x01\] Scope (v0.2.x)](#0x01-scope-v02x)
+- [\[0x01\] Scope (v0.19.x)](#0x01-scope-v019x)
 - [\[0x02\] Install](#0x02-install)
 - [\[0x03\] Auth](#0x03-auth)
 - [\[0x04\] Quick start](#0x04-quick-start)
@@ -54,7 +54,7 @@ on first `use GCP`. The cdylib talks to GCP's REST APIs directly via
 no version-conflict tax from chrono / arrow / smithy that the proper SDK
 crates currently impose.
 
-## [0x01] Scope (v0.2.x)
+## [0x01] Scope (v0.19.x)
 
 | Service | Status |
 |---|---|
