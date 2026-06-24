@@ -23,6 +23,8 @@ stryke core binary so the daily-driver install stays slim.
 
 ### [`strykelang`](https://github.com/MenkeTechnologies/strykelang) &middot; [`MenkeTechnologiesMeta`](https://github.com/MenkeTechnologies/MenkeTechnologiesMeta) · [`stryke-aws`](https://github.com/MenkeTechnologies/stryke-aws) · [`stryke-k8s`](https://github.com/MenkeTechnologies/stryke-k8s) · [`stryke-demo`](https://github.com/MenkeTechnologies/stryke-demo)
 
+### [`Read the Docs`](https://menketechnologies.github.io/stryke-gcp/) &middot; [`Engineering Report`](https://menketechnologies.github.io/stryke-gcp/report.html)
+
 ---
 
 ## Table of Contents
